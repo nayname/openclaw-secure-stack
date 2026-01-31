@@ -1,0 +1,9 @@
+# sdd-mcp-server installed files
+.claude/rules/
+.claude/contexts/
+.claude/agents/
+.claude/hooks/
+.claude/skills/
+
+# SDD spec steering (generated templates)
+.spec/steering/
