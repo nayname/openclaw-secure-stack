@@ -166,7 +166,7 @@ uv run pytest tests/ -q
 uv run ruff check src/ tests/
 
 # Run proxy locally (dev mode)
-uv run uvicorn src.proxy.app:create_app --factory --reload
+uv run uvicorn src.proxy.app:create_app_from_env --factory --reload
 ```
 
 ## Project Structure
@@ -184,6 +184,11 @@ config/              # Scanner rules, prompt rules, egress allowlist
 docker/              # CoreDNS egress sidecar
 tests/               # Unit (70%) + integration (20%) + security (10%)
 ```
+
+## Documentation
+
+- [User Quick Start](docs/quickstart-user.md) — operations guide for deploying and running the stack
+- [Developer Quick Start](docs/quickstart-dev.md) — contributor guide for local development and extending the codebase
 
 ## License
 

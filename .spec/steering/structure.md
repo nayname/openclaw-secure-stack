@@ -31,7 +31,6 @@ openclaw-secure-stack/
 │   └── egress/
 │       ├── Corefile              # CoreDNS configuration
 │       ├── Dockerfile            # CoreDNS sidecar image
-│       └── generate-zone.sh      # Allowlist → zone file converter
 ├── tests/
 │   ├── conftest.py               # Shared test fixtures
 │   ├── unit/                     # Unit tests (70% of suite)
@@ -42,6 +41,7 @@ openclaw-secure-stack/
 │   └── specs/                    # Feature specifications
 ├── Dockerfile                    # Multi-stage build (distroless runtime)
 ├── docker-compose.yml            # Orchestration with security hardening
+├── build.sh                      # Docker image build script
 ├── install.sh                    # One-click deployment script
 ├── pyproject.toml                # Project config and dependencies
 ├── .env.example                  # Environment variable template

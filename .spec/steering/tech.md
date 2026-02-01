@@ -66,7 +66,7 @@ uv run mypy src/
 uv run python -m src.scanner.cli scan <skill-path>
 
 # Start proxy server (dev)
-uv run uvicorn src.proxy.app:create_app --factory --reload
+uv run uvicorn src.proxy.app:create_app_from_env --factory --reload
 ```
 
 ## Quality Assurance
