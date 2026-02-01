@@ -11,8 +11,11 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from src.audit.logger import AuditLogger
 from src.models import AuditEvent, AuditEventType, RiskLevel
 
-# Paths that bypass authentication
+# Paths that bypass authentication (exact match)
 PUBLIC_PATHS = {"/health", "/healthz", "/ready"}
+
+# Path prefixes that bypass authentication
+PUBLIC_PREFIXES = ("/__openclaw__/canvas",)
 
 
 class AuthMiddleware:
@@ -32,7 +35,7 @@ class AuthMiddleware:
         path = request.url.path
 
         # Skip auth for public paths
-        if path in PUBLIC_PATHS:
+        if path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES):
             await self.app(scope, receive, send)
             return
 

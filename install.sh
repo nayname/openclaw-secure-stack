@@ -257,6 +257,24 @@ main() {
                 "${onboard_auth_flags[@]}"
     fi
 
+    # Enable the OpenAI-compatible HTTP API (disabled by default)
+    info "Enabling HTTP chat completions endpoint..."
+    $CONTAINER_RT run --rm \
+        --user 65534 \
+        -e HOME=/home/openclaw \
+        -v openclaw-secure-stack_openclaw-data:/home/openclaw/.openclaw \
+        "$openclaw_image" \
+        node -e "
+          const fs = require('fs');
+          const p = '/home/openclaw/.openclaw/openclaw.json';
+          const c = JSON.parse(fs.readFileSync(p, 'utf8'));
+          c.gateway = c.gateway || {};
+          c.gateway.http = c.gateway.http || {};
+          c.gateway.http.endpoints = c.gateway.http.endpoints || {};
+          c.gateway.http.endpoints.chatCompletions = { enabled: true };
+          fs.writeFileSync(p, JSON.stringify(c, null, 2));
+        "
+
     # Start all services
     info "Starting services..."
     $COMPOSE_CMD up -d

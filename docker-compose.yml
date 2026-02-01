@@ -34,6 +34,8 @@ services:
   openclaw:
     image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:latest}
     command: ["node", "dist/index.js", "gateway", "--port", "3000", "--bind", "lan"]
+    ports:
+      - "3000:3000"
     environment:
       - HOME=/home/openclaw
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -43,6 +45,7 @@ services:
       - openclaw-data:/home/openclaw/.openclaw
     networks:
       - internal
+      - egress
     tty: true
     healthcheck:
       test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/health',function(r){process.exit(r.statusCode===200?0:1)}).on('error',function(){process.exit(1)})\""]
@@ -52,7 +55,7 @@ services:
       start_period: 10s
     read_only: true
     tmpfs:
-      - /tmp:size=10M
+      - /tmp:size=100M
     cap_drop:
       - ALL
     security_opt:
@@ -68,6 +71,7 @@ services:
     networks:
       internal:
         ipv4_address: 172.28.0.10
+      egress:
     read_only: true
     cap_drop:
       - ALL
@@ -88,3 +92,5 @@ networks:
     ipam:
       config:
         - subnet: 172.28.0.0/16
+  egress:
+    driver: bridge
