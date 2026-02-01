@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import AsyncIterator
 
 import httpx
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from src.audit.logger import AuditLogger
 from src.proxy.auth_middleware import AuthMiddleware
@@ -48,13 +49,16 @@ def create_app(
         headers = dict(request.headers)
         headers.pop("host", None)
         headers.pop("authorization", None)
+        headers["authorization"] = f"Bearer {token}"
 
         body = await request.body()
+        is_streaming = False
 
         # Sanitize request body for POST/PUT/PATCH
         if request.method in ("POST", "PUT", "PATCH") and body:
             try:
                 body_json = json.loads(body)
+                is_streaming = body_json.get("stream", False) is True
                 # Sanitize string fields that may contain user input
                 body_json = _sanitize_body(body_json, sanitizer)
                 body = json.dumps(body_json).encode()
@@ -66,6 +70,11 @@ def create_app(
                     )
                 # Not JSON — forward as-is
 
+        timeout = 300.0 if is_streaming else 30.0
+
+        if is_streaming:
+            return await _stream_response(request.method, url, headers, body, timeout)
+
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.request(
@@ -73,17 +82,9 @@ def create_app(
                     url=url,
                     headers=headers,
                     content=body,
-                    timeout=30.0,
+                    timeout=timeout,
                 )
-                # Strip hop-by-hop headers and content-length/transfer-encoding
-                # so Starlette sets the correct content-length for the actual body.
-                fwd_headers = {
-                    k: v for k, v in resp.headers.items()
-                    if k.lower() not in (
-                        "content-length", "transfer-encoding",
-                        "connection", "keep-alive",
-                    )
-                }
+                fwd_headers = _strip_hop_by_hop(resp.headers)
                 return Response(
                     content=resp.content,
                     status_code=resp.status_code,
@@ -96,6 +97,49 @@ def create_app(
     app.add_middleware(AuthMiddleware, token=token, audit_logger=audit_logger)
 
     return app
+
+
+def _strip_hop_by_hop(headers: httpx.Headers) -> dict[str, str]:
+    return {
+        k: v for k, v in headers.items()
+        if k.lower() not in (
+            "content-length", "transfer-encoding",
+            "connection", "keep-alive",
+        )
+    }
+
+
+async def _stream_response(
+    method: str,
+    url: str,
+    headers: dict[str, str],
+    body: bytes,
+    timeout: float,
+) -> StreamingResponse | JSONResponse:
+    client = httpx.AsyncClient()
+    try:
+        req = client.build_request(method, url, headers=headers, content=body)
+        resp = await client.send(req, stream=True, timeout=timeout)
+    except (httpx.ConnectError, httpx.TimeoutException):
+        await client.aclose()
+        return JSONResponse({"error": "Upstream unavailable"}, status_code=502)
+
+    fwd_headers = _strip_hop_by_hop(resp.headers)
+
+    async def body_iterator() -> AsyncIterator[bytes]:
+        try:
+            async for chunk in resp.aiter_bytes():
+                yield chunk
+        finally:
+            await resp.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        content=body_iterator(),
+        status_code=resp.status_code,
+        headers=fwd_headers,
+        media_type="text/event-stream",
+    )
 
 
 def _sanitize_body(data: object, sanitizer: PromptSanitizer) -> object:
