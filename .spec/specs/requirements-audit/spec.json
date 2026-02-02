@@ -1,0 +1,22 @@
+{
+  "feature_name": "requirements-audit",
+  "created_at": "2026-02-02T15:38:28.472Z",
+  "updated_at": "2026-02-02T15:58:23.100Z",
+  "language": "en",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true
+}
