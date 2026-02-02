@@ -34,7 +34,7 @@ Same as the existing stack: **layered sidecar / reverse-proxy** around unmodifie
 
 **Files**: `Dockerfile`, `install.sh`
 
-**Current state**: Runtime stage uses `python:3.12-slim` with manual purge of apt/dpkg/perl. Good but not fully distroless.
+**Current state**: Runtime stage uses `python:3.12-slim` with manual purge of apt/dpkg/perl. Reasonable but lacks formal hardening validation (SUID removal, digest pinning).
 
 **Design**:
 
@@ -197,7 +197,7 @@ class PinResult(BaseModel, frozen=True):
    ```
    The audit script (FR-6) validates the chain on each run. If a line's `prev_hash` doesn't match the SHA-256 of the previous line, the chain is broken → tamper alert.
 
-3. **Alerting** — Tamper detection is passive (checked by audit script) rather than real-time. For real-time, `chattr +a` can be set on Linux if running with appropriate capabilities, but this is optional and platform-dependent.
+3. **Alerting** — Tamper detection is passive: `scripts/audit.py` validates the hash chain and reports a `critical` finding on breakage. Real-time alerting (webhook/email) is out of scope for v0.1.
 
 ---
 

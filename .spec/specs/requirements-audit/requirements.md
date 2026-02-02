@@ -14,7 +14,7 @@ Requirements derived from the traceability matrix gap analysis (`traceability-ma
 
 ### FR-1: Container Hardening
 
-**Source Gap**: FR-1 Partial — proxy image uses full Alpine; no image-hardening validation.
+**Source Gap**: FR-1 Partial — proxy image uses `python:3.12-slim` with manual purge but no formal image-hardening validation.
 
 **Requirements**:
 
@@ -22,7 +22,7 @@ Requirements derived from the traceability matrix gap analysis (`traceability-ma
 2. `install.sh` SHALL validate that the OpenClaw image meets hardening criteria (no shell in production, no SUID binaries, non-root user). *(Ubiquitous)*
 
 **Acceptance Criteria**:
-- [ ] Proxy Dockerfile uses a minimal base (e.g., `alpine:latest` with `--no-cache` and explicit package removal, or distroless)
+- [ ] Proxy Dockerfile uses a minimal base (e.g., `python:3.12-slim` with explicit package purge, or distroless)
 - [ ] `install.sh` includes an image-hardening check that fails on violation
 - [ ] No container runs as root in default configuration
 
@@ -30,7 +30,7 @@ Requirements derived from the traceability matrix gap analysis (`traceability-ma
 
 ### FR-2: Network Isolation
 
-**Source Gap**: FR-2 Partial — ports are not published but documentation of egress policy is incomplete.
+**Source Gap**: FR-2 Partial — openclaw service publishes port 3000:3000 to the host; egress policy documentation is incomplete.
 
 **Requirements**:
 
@@ -38,7 +38,7 @@ Requirements derived from the traceability matrix gap analysis (`traceability-ma
 2. WHEN egress restrictions change THEN the documentation (`README.md` or dedicated network doc) SHALL be updated to reflect the current policy. *(Event-Driven)*
 
 **Acceptance Criteria**:
-- [ ] `docker-compose.yml` exposes no host ports by default (only internal networks)
+- [ ] `docker-compose.yml` removes `ports: ["3000:3000"]` from openclaw; only proxy (8080) and caddy (8443) are host-facing
 - [ ] Egress policy is documented and matches the actual CoreDNS/firewall configuration
 - [ ] Changing an egress rule without updating docs causes an audit script warning
 
@@ -50,12 +50,15 @@ Requirements derived from the traceability matrix gap analysis (`traceability-ma
 
 **Requirements**:
 
-1. WHEN a skill is scanned THEN the scanner SHALL verify the skill content against a pinned cryptographic hash. *(Event-Driven)*
-2. The system SHALL persist a trust score for each skill in the quarantine database. *(Ubiquitous)*
+1. WHERE a skill pin file exists WHEN a skill is scanned THEN the scanner SHALL verify the skill's content hash against the pinned SHA-256 hash. *(Optional + Event-Driven)*
+2. IF a pinned hash does not match THEN the scanner SHALL quarantine the skill immediately without further scanning. *(Unwanted Behavior)*
+3. IF no pin file or no pin entry exists for a skill THEN the scanner SHALL log a warning and proceed with AST scanning (fail-open). *(Unwanted Behavior)*
+4. The system SHALL persist a trust score for each skill in the quarantine database. *(Ubiquitous)*
 
 **Acceptance Criteria**:
-- [ ] Skill manifest includes SHA-256 hash for each skill file
-- [ ] Scanner rejects skills whose content does not match the pinned hash
+- [ ] `config/skill-pins.json` maps each skill name to a single SHA-256 hash computed over the skill directory contents
+- [ ] Scanner rejects (quarantines) skills whose content hash does not match the pinned hash
+- [ ] Missing pin file or missing entry for a skill results in an audit log warning, not a rejection
 - [ ] Trust score is stored in the quarantine DB and queryable
 
 ---
@@ -82,13 +85,15 @@ Requirements derived from the traceability matrix gap analysis (`traceability-ma
 **Requirements**:
 
 1. Audit logs SHALL be append-only with configurable rotation and retention policies. *(Ubiquitous)*
-2. IF a log file is tampered with THEN the system SHALL detect the tampering and alert the operator. *(Unwanted Behavior)*
+2. Each audit log entry SHALL include a `prev_hash` field forming a SHA-256 hash chain for integrity verification. *(Ubiquitous)*
+3. IF the audit script detects a broken hash chain THEN it SHALL report a `critical` finding. *(Unwanted Behavior)*
 
 **Acceptance Criteria**:
 - [ ] Log files are opened in append-only mode
 - [ ] Rotation and retention are configurable via environment variables or config file
-- [ ] Tamper detection mechanism exists (e.g., checksums, chattr +a, or integrity monitor)
-- [ ] Alert is generated on tamper detection
+- [ ] Each log line includes `prev_hash` (null for the first entry)
+- [ ] `scripts/audit.py` validates the hash chain and reports broken chains as `critical` findings
+- [ ] Tamper detection is passive (audit-script-based); real-time alerting is out of scope for v0.1
 
 ---
 
@@ -121,9 +126,10 @@ Requirements derived from the traceability matrix gap analysis (`traceability-ma
 2. WHEN the proxy receives a request THEN it SHALL respond within the configured latency threshold (default 500ms p95). *(Event-Driven)*
 
 **Acceptance Criteria**:
-- [ ] Startup time is measured and compared against threshold in CI
-- [ ] Latency p95 is measurable via health-check or smoke test
+- [ ] Startup time is measured by `scripts/audit.py` and compared against a configurable threshold
+- [ ] Latency p95 is measured by `scripts/audit.py` via health-check requests
 - [ ] Thresholds are configurable via environment variables
+- [ ] Performance findings are informational (severity: `low`) unless thresholds are breached
 
 ---
 
