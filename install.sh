@@ -118,6 +118,34 @@ sed_escape_rhs() {
     printf '%s' "$1" | sed 's/[&|/\]/\\&/g'
 }
 
+fail() { error "$*"; exit 1; }
+
+validate_image_hardening() {
+    local image="$1"
+    info "Validating image hardening for $image..."
+
+    # Check: runs as non-root (65534 = nobody, 65532 = distroless nonroot)
+    local user
+    user=$($CONTAINER_RT inspect --format '{{.Config.User}}' "$image" 2>/dev/null)
+    if [ "$user" != "65534" ] && [ "$user" != "65532" ] && [ "$user" != "nonroot" ]; then
+        fail "Image $image runs as root (user=$user)"
+    fi
+
+    # For distroless images, shell/find checks are unnecessary (no shell exists)
+    # Check if image has a shell by trying to run it
+    if $CONTAINER_RT run --rm --entrypoint="/bin/sh" "$image" -c "exit 0" 2>/dev/null; then
+        warn "Shell present in $image - checking for SUID binaries..."
+        if $CONTAINER_RT run --rm --entrypoint="" "$image" \
+            find / -perm /6000 -type f 2>/dev/null | grep -q .; then
+            fail "SUID/SGID binaries found in $image"
+        fi
+    else
+        info "No shell in $image (distroless) - inherently hardened"
+    fi
+
+    info "Image hardening checks passed for $image"
+}
+
 main() {
     info "OpenClaw Secure Stack Installer"
     echo ""
@@ -202,6 +230,13 @@ main() {
     # Build containers
     info "Building containers..."
     $COMPOSE_CMD build
+
+    # Validate image hardening
+    local proxy_image
+    proxy_image=$($COMPOSE_CMD images proxy -q 2>/dev/null || echo "")
+    if [ -n "$proxy_image" ]; then
+        validate_image_hardening "$proxy_image"
+    fi
 
     # Read token from .env
     local gateway_token
