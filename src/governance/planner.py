@@ -9,12 +9,13 @@ This module provides the PlanGenerator class for:
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 import hashlib
 import json
 import re
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, List, Dict
 
 from src.governance.models import (
     ExecutionPlan,
@@ -26,6 +27,10 @@ from src.governance.models import (
     RiskLevel,
     ToolCall,
 )
+
+EXECUTION_PLAN_PROMPT = """
+...
+"""
 
 
 class PlanGenerator:
@@ -59,7 +64,7 @@ class PlanGenerator:
     PATH_KEYS = {"path", "file", "filepath", "filename", "directory", "dir"}
     URL_KEYS = {"url", "uri", "endpoint", "href"}
 
-    def __init__(self, patterns_path: str) -> None:
+    def __init__(self, patterns_path: str, llm) -> None:
         """Initialize the plan generator.
 
         Args:
@@ -69,6 +74,109 @@ class PlanGenerator:
         self._risk_multipliers: dict[str, float] = {}
         self._tool_categories: dict[str, str] = {}  # tool -> category
         self._load_config()
+        self.llm = llm
+
+
+    def generate(
+            self,
+            *,
+            user_message: str,
+            context: Dict[str, Any],
+            session_id: str | None = None,
+            ttl_minutes: int = 10,
+    ) -> Dict[str, Any]:
+        """
+        Generate a FULL ExecutionPlan artifact.
+
+        Returns:
+            dict conforming to execution-plan.json
+        """
+
+        # ---------- 1. Ask LLM to generate a COMPLETE plan ----------
+        raw = self.llm.complete(
+            prompt=EXECUTION_PLAN_PROMPT.format(
+                user_message=user_message,
+                context=json.dumps(context, indent=2),
+            ),
+            temperature=0,
+        )
+
+        try:
+            plan: Dict[str, Any] = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise ValueError("Planner did not return valid JSON") from e
+
+        # ---------- 2. System-owned authoritative fields ----------
+        now = datetime.utcnow()
+
+        plan["version"] = "1.0.0"
+        plan["planId"] = str(uuid.uuid4())
+        plan["createdAt"] = now.isoformat() + "Z"
+        plan["expiresAt"] = (now + timedelta(minutes=ttl_minutes)).isoformat() + "Z"
+
+        if session_id is not None:
+            plan["sessionId"] = session_id
+
+        # ---------- 3. Normalize intent ----------
+        intent = plan.setdefault("intent", {})
+        intent.setdefault("userMessage", user_message)
+
+        # Enforce enums defensively
+        intent["category"] = intent.get("category", "mixed")
+        intent["riskLevel"] = intent.get("riskLevel", "medium")
+
+        # ---------- 4. Normalize operations ----------
+        operations = plan.get("operations")
+        if not operations:
+            raise ValueError("ExecutionPlan must contain operations")
+
+        for idx, op in enumerate(operations, start=1):
+            op.setdefault("id", f"op-{idx:03d}")
+            op.setdefault("parallel", False)
+            op.setdefault("maxInvocations", 1)
+            op.setdefault("requiresConfirmation", False)
+
+            # Defensive: ensure allow exists
+            if "allow" not in op:
+                raise ValueError(f"Operation {op['id']} missing allow rules")
+
+        # ---------- 5. Normalize global constraints ----------
+        constraints = plan.setdefault("constraints", {})
+        constraints.setdefault("allowUnplanned", False)
+        constraints.setdefault("requireSequential", False)
+        constraints.setdefault("maxTotalOperations", len(operations))
+        constraints.setdefault("maxDurationMs", 300000)
+
+        # ---------- 6. Metadata enrichment ----------
+        metadata = plan.setdefault("metadata", {})
+        metadata.setdefault(
+            "generatedBy",
+            getattr(self.llm, "model_name", "unknown"),
+        )
+        metadata.setdefault(
+            "qualityScore",
+            self._estimate_quality(plan),
+        )
+
+        return plan
+
+
+    def _estimate_quality(self, plan: Dict[str, Any]) -> int:
+        """
+        Crude heuristic: more explicit plans score higher.
+        """
+        score = 100
+
+        for op in plan.get("operations", []):
+            if not op.get("deny"):
+                score -= 5
+            if not op.get("requires"):
+                score -= 3
+
+        if plan.get("constraints", {}).get("allowUnplanned"):
+            score -= 15
+
+        return max(0, min(100, score))
 
     def _load_config(self) -> None:
         """Load configuration from patterns file."""
