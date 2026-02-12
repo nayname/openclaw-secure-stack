@@ -5,6 +5,16 @@ This module provides the PlanGenerator class for:
 - Extracting resource access patterns
 - Calculating risk assessments
 - Generating complete ExecutionPlans
+- Incorporating user-specific operational knowledge (OperationalProfile)
+
+The execution plan is:
+- Generated before execution
+- Set up by the user (via operational profile)
+- Enforced at runtime
+
+The plan encodes user-specific operational knowledge - paths, procedures,
+constraints, configs - and serves as an external guiding source of truth
+for execution, not just a non-binding context.
 """
 
 from __future__ import annotations
@@ -18,15 +28,18 @@ from pathlib import Path
 from typing import Any, List, Dict
 
 from src.governance.models import (
+    EnhancedExecutionPlan,
     ExecutionPlan,
     Intent,
     IntentCategory,
+    OperationalProfile,
     PlannedAction,
     ResourceAccess,
     RiskAssessment,
     RiskLevel,
     ToolCall,
 )
+from src.governance.profile import load_profile, ProfileLoader
 
 EXECUTION_PLAN_PROMPT = """
 ...
@@ -37,6 +50,13 @@ class PlanGenerator:
     """Generates execution plans from classified intent.
 
     Uses patterns config for risk calculation and resource extraction.
+    Incorporates operational profiles for user-specific constraints.
+
+    The execution plan encodes user-specific operational knowledge:
+    - Paths: working directories, protected paths, sensitive patterns
+    - Procedures: standard operating procedures for common tasks
+    - Constraints: what's never allowed
+    - Configs: environment-specific settings
     """
 
     # Base risk scores by category
@@ -64,17 +84,57 @@ class PlanGenerator:
     PATH_KEYS = {"path", "file", "filepath", "filename", "directory", "dir"}
     URL_KEYS = {"url", "uri", "endpoint", "href"}
 
-    def __init__(self, patterns_path: str, llm) -> None:
+    def __init__(
+        self,
+        patterns_path: str,
+        llm,
+        profile_path: str | None = None,
+    ) -> None:
         """Initialize the plan generator.
 
         Args:
             patterns_path: Path to the intent-patterns.json config file.
+            llm: LLM instance for plan generation.
+            profile_path: Optional path to operational profile.
         """
         self._patterns_path = patterns_path
         self._risk_multipliers: dict[str, float] = {}
         self._tool_categories: dict[str, str] = {}  # tool -> category
         self._load_config()
         self.llm = llm
+
+        # Load operational profile
+        self._profile_loader = ProfileLoader()
+        self._operational_profile: OperationalProfile | None = None
+        if profile_path:
+            try:
+                self._operational_profile = self._profile_loader.load_from_file(profile_path)
+            except (FileNotFoundError, ValueError):
+                # Fall back to discovery
+                self._operational_profile = self._profile_loader.discover_profile()
+        else:
+            self._operational_profile = self._profile_loader.discover_profile()
+
+    @property
+    def operational_profile(self) -> OperationalProfile | None:
+        """Get the current operational profile."""
+        return self._operational_profile
+
+    def set_operational_profile(self, profile: OperationalProfile) -> None:
+        """Set the operational profile for plan generation.
+
+        Args:
+            profile: The operational profile to use.
+        """
+        self._operational_profile = profile
+
+    def load_profile(self, path: str) -> None:
+        """Load an operational profile from a file.
+
+        Args:
+            path: Path to the profile JSON file.
+        """
+        self._operational_profile = self._profile_loader.load_from_file(path)
 
 
     def generate(
@@ -84,19 +144,50 @@ class PlanGenerator:
             context: Dict[str, Any],
             session_id: str | None = None,
             ttl_minutes: int = 10,
+            profile: OperationalProfile | None = None,
     ) -> Dict[str, Any]:
         """
-        Generate a FULL ExecutionPlan artifact.
+        Generate a FULL ExecutionPlan artifact with operational knowledge.
+
+        The plan encodes user-specific operational knowledge - paths, procedures,
+        constraints, configs - and serves as an external guiding source of truth
+        for execution, not just a non-binding context.
+
+        Args:
+            user_message: The user's request.
+            context: Additional context for plan generation.
+            session_id: Optional session ID for binding.
+            ttl_minutes: Plan time-to-live in minutes.
+            profile: Optional operational profile (uses instance profile if not provided).
 
         Returns:
-            dict conforming to execution-plan.json
+            dict conforming to execution-plan.json schema with operational knowledge.
         """
+        # Use provided profile or fall back to instance profile
+        active_profile = profile or self._operational_profile
 
-        # ---------- 1. Ask LLM to generate a COMPLETE plan ----------
+        # ---------- 1. Build context with operational knowledge ----------
+        enriched_context = dict(context)
+        if active_profile:
+            enriched_context["operationalProfile"] = {
+                "environment": active_profile.environment,
+                "projectRoot": active_profile.project_root,
+                "workingDirs": active_profile.paths.working_dirs,
+                "protectedPaths": active_profile.paths.protected_paths,
+                "protectedTables": active_profile.database.protected_tables,
+                "forbiddenCommands": active_profile.services.forbidden_commands,
+                "globalConstraints": active_profile.global_constraints,
+                "procedures": [
+                    {"name": p.name, "description": p.description}
+                    for p in active_profile.procedures
+                ],
+            }
+
+        # ---------- 2. Ask LLM to generate a COMPLETE plan ----------
         raw = self.llm.complete(
             prompt=EXECUTION_PLAN_PROMPT.format(
                 user_message=user_message,
-                context=json.dumps(context, indent=2),
+                context=json.dumps(enriched_context, indent=2),
             ),
             temperature=0,
         )
@@ -106,7 +197,7 @@ class PlanGenerator:
         except json.JSONDecodeError as e:
             raise ValueError("Planner did not return valid JSON") from e
 
-        # ---------- 2. System-owned authoritative fields ----------
+        # ---------- 3. System-owned authoritative fields ----------
         now = datetime.utcnow()
 
         plan["version"] = "1.0.0"
@@ -117,7 +208,7 @@ class PlanGenerator:
         if session_id is not None:
             plan["sessionId"] = session_id
 
-        # ---------- 3. Normalize intent ----------
+        # ---------- 4. Normalize intent ----------
         intent = plan.setdefault("intent", {})
         intent.setdefault("userMessage", user_message)
 
@@ -125,7 +216,7 @@ class PlanGenerator:
         intent["category"] = intent.get("category", "mixed")
         intent["riskLevel"] = intent.get("riskLevel", "medium")
 
-        # ---------- 4. Normalize operations ----------
+        # ---------- 5. Normalize operations ----------
         operations = plan.get("operations")
         if not operations:
             raise ValueError("ExecutionPlan must contain operations")
@@ -140,14 +231,45 @@ class PlanGenerator:
             if "allow" not in op:
                 raise ValueError(f"Operation {op['id']} missing allow rules")
 
-        # ---------- 5. Normalize global constraints ----------
+        # ---------- 6. Normalize global constraints ----------
         constraints = plan.setdefault("constraints", {})
         constraints.setdefault("allowUnplanned", False)
         constraints.setdefault("requireSequential", False)
         constraints.setdefault("maxTotalOperations", len(operations))
         constraints.setdefault("maxDurationMs", 300000)
 
-        # ---------- 6. Metadata enrichment ----------
+        # ---------- 7. Merge operational profile constraints ----------
+        if active_profile:
+            # Add forbidden paths from profile
+            forbidden_paths = constraints.setdefault("forbiddenPaths", [])
+            forbidden_paths.extend(active_profile.paths.protected_paths)
+            constraints["forbiddenPaths"] = list(set(forbidden_paths))
+
+            # Add forbidden commands from profile
+            forbidden_commands = constraints.setdefault("forbiddenCommands", [])
+            forbidden_commands.extend(active_profile.services.forbidden_commands)
+            constraints["forbiddenCommands"] = list(set(forbidden_commands))
+
+            # Add profile reference to metadata
+            plan.setdefault("metadata", {})["operationalProfileId"] = active_profile.profile_id
+            plan["metadata"]["operationalProfileVersion"] = active_profile.version
+            plan["metadata"]["environment"] = active_profile.environment
+
+            # Store full profile summary for audit
+            plan["operationalKnowledge"] = {
+                "profileId": active_profile.profile_id,
+                "profileName": active_profile.name,
+                "environment": active_profile.environment,
+                "workingDirs": active_profile.paths.working_dirs,
+                "protectedPaths": active_profile.paths.protected_paths[:10],  # Limit for size
+                "protectedTables": active_profile.database.protected_tables,
+                "globalConstraints": active_profile.global_constraints,
+                "appliedProcedure": self._find_matching_procedure(
+                    user_message, active_profile
+                ),
+            }
+
+        # ---------- 8. Metadata enrichment ----------
         metadata = plan.setdefault("metadata", {})
         metadata.setdefault(
             "generatedBy",
@@ -159,6 +281,33 @@ class PlanGenerator:
         )
 
         return plan
+
+    def _find_matching_procedure(
+        self, user_message: str, profile: OperationalProfile
+    ) -> Dict[str, Any] | None:
+        """Find a procedure that matches the user's intent.
+
+        Args:
+            user_message: The user's request.
+            profile: The operational profile to search.
+
+        Returns:
+            Matching procedure summary or None.
+        """
+        user_lower = user_message.lower()
+
+        for proc in profile.procedures:
+            # Simple keyword matching - could be enhanced with LLM
+            proc_keywords = proc.name.lower().replace("_", " ").split()
+            if any(kw in user_lower for kw in proc_keywords):
+                return {
+                    "name": proc.name,
+                    "description": proc.description,
+                    "requiredSteps": proc.required_steps,
+                    "preconditions": proc.preconditions,
+                }
+
+        return None
 
 
     def _estimate_quality(self, plan: Dict[str, Any]) -> int:
