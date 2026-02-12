@@ -13,7 +13,6 @@ import httpx
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
-import src.executor.facade as executor
 from src.audit.logger import AuditLogger
 from src.models import AuditEvent, AuditEventType, RiskLevel
 from src.proxy.auth_middleware import AuthMiddleware
@@ -251,23 +250,6 @@ def create_app(
             try:
                 is_streaming = body_json.get("stream", False) is True
                 body_json = _sanitize_body(body_json, sanitizer)
-
-                # NEW: Governance + Execution
-                if executor and _is_tool_request(body_json):
-                    plan = executor.Executor.build_plan(body_json, user_id, session_id, op_knowledge)
-                    validation = executor.Executor.validate(plan)
-
-                    if validation["decision"] == "block":
-                        return JSONResponse({"error": "Blocked by policy"}, status_code=403)
-
-                    if validation["approval_required"]:
-                        # Handle approval flow...
-                        pass
-
-                    # Store plan and inject token into request
-                    plan_id, token = executor.Executor.store_plan(plan)
-                    body_json["_governance"] = {"plan_id": plan_id, "token": token}
-
                 body = json.dumps(body_json).encode()
             except PromptInjectionError:
                 return JSONResponse(
