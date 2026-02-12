@@ -18,11 +18,13 @@ from typing import Any
 from src.governance.approver import ApprovalGate
 from src.governance.classifier import IntentClassifier
 from src.governance.enforcer import EnforcementResult, GovernanceEnforcer
+from src.governance.engine import ExecutionEngine, AgentContextInjector
+from src.governance.engine_adapter import adapt_execution_plan
 from src.governance.models import (
     ApprovalRequest,
     GovernanceDecision,
     PolicyViolation,
-    ToolCall,
+    ToolCall, ExecutionContext,
 )
 from src.governance.planner import PlanGenerator
 from src.governance.session import SessionManager
@@ -206,6 +208,61 @@ class GovernanceMiddleware:
             violations=[],
             message="Request allowed",
         )
+
+    def execute(
+            self,
+            evaluation: dict,
+            session,
+            tool_executor
+    ):
+        """
+        Execute an evaluated plan.
+
+        SIDE EFFECTS LIVE HERE.
+        """
+
+        if evaluation["decision"] == GovernanceDecision.BLOCK:
+            raise RuntimeError("Attempted to execute a blocked plan")
+
+        exec_plan = self.plan
+
+        # AGENT MODE
+        if exec_plan.execution_mode == "agent":
+            injector = AgentContextInjector()
+            agent_context = injector.generate_context(
+                plan=exec_plan,
+                state=None,
+            )
+
+            return {
+                "type": "agent_plan",
+                "planId": exec_plan.planId,
+                "agentContext": agent_context,
+            }
+
+        # ENGINE MODE
+        engine = ExecutionEngine(
+            enforcer=GovernanceEnforcer(),
+            tool_executor=tool_executor,
+        )
+
+        exec_context = ExecutionContext(
+            plan_id=exec_plan.planId,
+            session_id=session.id,
+            token=session.token,
+        )
+
+        state = await engine.execute(
+            plan=exec_plan,
+            context=exec_context,
+        )
+
+        return {
+            "type": "execution_result",
+            "planId": exec_plan.planId,
+            "state": state,
+        }
+
 
     def enforce(
         self,
