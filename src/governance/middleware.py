@@ -18,18 +18,18 @@ from typing import Any
 from src.governance.approver import ApprovalGate
 from src.governance.classifier import IntentClassifier
 from src.governance.enforcer import EnforcementResult, GovernanceEnforcer
-from src.governance.engine import ExecutionEngine, AgentContextInjector
-from src.governance.engine_adapter import adapt_execution_plan
 from src.governance.models import (
     ApprovalRequest,
     GovernanceDecision,
     PolicyViolation,
-    ToolCall, ExecutionContext,
+    ToolCall,
+    ExecutionPlan,
 )
 from src.governance.planner import PlanGenerator
 from src.governance.session import SessionManager
 from src.governance.store import PlanStore
 from src.governance.validator import PolicyValidator
+from src.llm.client import LLMClient
 
 
 @dataclass
@@ -85,8 +85,9 @@ class GovernanceMiddleware:
         self._enabled = settings.get("enabled", True)
 
         if self._enabled:
+            self.llm = LLMClient()
             self._classifier = IntentClassifier(patterns_path)
-            self._planner = PlanGenerator(patterns_path)
+            self._planner = PlanGenerator(patterns_path, self.llm)
             self._validator = PolicyValidator(policy_path)
             self._store = PlanStore(db_path, secret)
             self._enforcer = GovernanceEnforcer(db_path, secret)
@@ -142,7 +143,7 @@ class GovernanceMiddleware:
         # Classify intent
         intent = self._classifier.classify(request_body)
 
-        # Generate plan
+        # Generate base plan from intent
         plan = self._planner.generate(
             intent=intent,
             request_body=request_body,
@@ -190,6 +191,9 @@ class GovernanceMiddleware:
         # Store plan and issue token
         plan_id, token = self._store.store(plan, ttl_seconds=self._token_ttl)
 
+        # Create enhanceed plan
+        self.create_enhanced_plan(plan, effective_session_id, user_id, token)
+
         # Record in session if enabled
         if self._session_enabled:
             for action in plan.actions:
@@ -209,60 +213,24 @@ class GovernanceMiddleware:
             message="Request allowed",
         )
 
-    def execute(
+    def create_enhanced_plan(
             self,
-            evaluation: dict,
-            session,
-            tool_executor
+            basic_plan: ExecutionPlan,
+            session_id: str | None,
+            user_id: str,
+            token: str,
     ):
-        """
-        Execute an evaluated plan.
-
-        SIDE EFFECTS LIVE HERE.
-        """
-
-        if evaluation["decision"] == GovernanceDecision.BLOCK:
-            raise RuntimeError("Attempted to execute a blocked plan")
-
-        exec_plan = self.plan
-
-        # AGENT MODE
-        if exec_plan.execution_mode == "agent":
-            injector = AgentContextInjector()
-            agent_context = injector.generate_context(
-                plan=exec_plan,
-                state=None,
-            )
-
-            return {
-                "type": "agent_plan",
-                "planId": exec_plan.planId,
-                "agentContext": agent_context,
-            }
-
-        # ENGINE MODE
-        engine = ExecutionEngine(
-            enforcer=GovernanceEnforcer(),
-            tool_executor=tool_executor,
+        # Enhance with LLM
+        enhanced_plan = self._planner.enhance(
+            basic_plan,
+            context={"user_role": "admin"}
         )
 
-        exec_context = ExecutionContext(
-            plan_id=exec_plan.planId,
-            session_id=session.id,
-            token=session.token,
+        enhanced_plan.initialize_state(
+            session_id=session_id,
+            user_id=user_id,
+            token=token,
         )
-
-        state = await engine.execute(
-            plan=exec_plan,
-            context=exec_context,
-        )
-
-        return {
-            "type": "execution_result",
-            "planId": exec_plan.planId,
-            "state": state,
-        }
-
 
     def enforce(
         self,
