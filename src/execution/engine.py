@@ -10,6 +10,7 @@ This module provides the ExecutionEngine class for:
 from __future__ import annotations
 
 import asyncio
+import logging
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import Any, Callable, Awaitable
@@ -20,8 +21,6 @@ from src.governance.models import (
     ToolCall,
     EnhancedExecutionPlan,
     ExecutionContext,
-    ExecutionMode,
-    ExecutionState,
     RecoveryPath,
     RecoveryStrategy,
     StepResult,
@@ -31,6 +30,8 @@ from src.governance.models import (
 
 # Type for tool execution function
 ToolExecutor = Callable[[str, dict[str, Any]], Awaitable[Any]]
+
+logger = logging.getLogger(__name__)
 
 
 class ExecutionError(Exception):
@@ -165,11 +166,21 @@ class ExecutionEngine:
             # Mark complete if we got through all steps
             if plan.state.status == StepStatus.RUNNING:
                 plan.state.status = StepStatus.COMPLETED
-                
+
         except Exception as e:
             plan.state.status = StepStatus.FAILED
-            # Log error but don't crash
-        
+            logger.exception(
+                "Execution failed with exception: plan_id=%s, error=%s",
+                plan.plan_id,
+                str(e),
+            )
+
+        logger.debug(
+            "Execution finished: plan_id=%s, final_status=%s, duration=%s",
+            plan.plan_id,
+            plan.state.status.value,
+            self._calc_total_duration(plan),
+        )
         plan.state.completed_at = datetime.now(UTC).isoformat()
     
     async def _execute_with_recovery(
@@ -399,3 +410,21 @@ class AgentContextInjector:
         ])
         
         return "\n".join(lines)
+
+    def _calc_total_duration(self, plan: EnhancedExecutionPlan) -> str:
+        """Calculate total execution duration as human-readable string."""
+        if plan.state is None:
+            return "unknown"
+        if plan.state.started_at is None or plan.state.completed_at is None:
+            return "incomplete"
+
+        start = datetime.fromisoformat(plan.state.started_at)
+        end = datetime.fromisoformat(plan.state.completed_at)
+        duration_sec = (end - start).total_seconds()
+
+        if duration_sec < 1:
+            return f"{int(duration_sec * 1000)}ms"
+        elif duration_sec < 60:
+            return f"{duration_sec:.1f}s"
+        else:
+            return f"{duration_sec / 60:.1f}m"
