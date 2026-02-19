@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-02-19
+
+### Added
+- **Per-session conversation history** (`src/webhook/history.py`) — multi-turn Telegram/WhatsApp conversations now accumulate message context sent on every upstream request; previously each relay was a cold single-message call
+  - In-memory `ConversationHistory` store keyed by `{source}:{sender_id}` to prevent cross-channel ID collisions (Telegram vs WhatsApp)
+  - Configurable `max_turns` truncation to bound prompt size
+  - TTL-based session eviction (default 24 h) to prevent unbounded memory growth from sender churn
+
+### Fixed
+- **Docker Compose paths** — corrected `build.context` and `config/` volume path in `deploy/hybrid/docker-compose.hybrid.yml`; paths are relative to the compose file location but Dockerfile and `config/` live at the project root
+- **Reproducible Docker builds** — `uv.lock` is now tracked in git (was gitignored), preventing `COPY pyproject.toml uv.lock ./` failures in Docker builds
+
+## [1.4.1] - 2026-02-19
+
+### Added
+- **`plugins/prompt-guard/openclaw.plugin.json`** manifest added to source tree (required `id` and `configSchema` fields)
+- **Telegram Bot Setup documentation** — new Part 5 in `docs/openclaw-cloudflare-tunnel-setup.md` covering BotFather registration, `.env` configuration, service restart, and `setWebhook` with `secret_token`
+- **Installer health checks** — port-binding readiness check (`ss :3000`) and end-to-end proxy→OpenClaw connectivity test added to `deploy/hybrid/install-hybrid.sh`
+
+### Fixed
+- **systemd service** — use `gateway run` (foreground process) instead of `gateway start` (daemon installer) in `ExecStart`
+- **Plugin config type** — write `plugins` config as `PluginsConfig` object (not array); wrong type crashed the gateway on startup
+- **Gateway token** — installer now reads the actual generated token from `openclaw.json` after onboarding instead of using a placeholder
+- **Dockerfile multi-arch** — removed arm64-pinned digest (broke x86_64 builds); switched to named `FROM` stage for BuildKit compatibility
+
 ## [1.4.0] - 2026-02-18
 
 ### Added
