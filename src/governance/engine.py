@@ -10,7 +10,6 @@ This module provides the ExecutionEngine class for:
 from __future__ import annotations
 
 import asyncio
-import logging
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import Any, Callable, Awaitable
@@ -21,6 +20,8 @@ from src.governance.models import (
     ToolCall,
     EnhancedExecutionPlan,
     ExecutionContext,
+    ExecutionMode,
+    ExecutionState,
     RecoveryPath,
     RecoveryStrategy,
     StepResult,
@@ -30,8 +31,6 @@ from src.governance.models import (
 
 # Type for tool execution function
 ToolExecutor = Callable[[str, dict[str, Any]], Awaitable[Any]]
-
-logger = logging.getLogger(__name__)
 
 
 class ExecutionError(Exception):
@@ -111,8 +110,9 @@ class ExecutionEngine:
     async def execute(
         self,
         plan: EnhancedExecutionPlan,
+        context: ExecutionContext,
         on_step_complete: Callable[[StepResult], Awaitable[None]] | None = None,
-    ):
+    ) -> ExecutionState:
         """Execute the plan and return final state.
         
         Args:
@@ -123,18 +123,25 @@ class ExecutionEngine:
         Returns:
             Final ExecutionState with all results.
         """
-
-        plan.state.status = StepStatus.RUNNING
-        plan.state.started_at = datetime.now(UTC).isoformat()
-
+        # Initialize state
+        state = ExecutionState(
+            plan_id=plan.plan_id,
+            session_id=context.session_id,
+            context=context,
+            current_sequence=0,
+            status=StepStatus.RUNNING,
+            total_steps=len(plan.actions),
+            started_at=datetime.now(UTC).isoformat(),
+        )
+        
         try:
             # Execute each action
             for action in plan.actions:
                 # Check if we should skip (conditional logic)
-                if self._should_skip(action.sequence, plan):
+                if self._should_skip(action.sequence, plan, state):
                     result = self._create_skipped_result(action)
-                    plan.state.step_results.append(result)
-                    plan.state.skipped_steps += 1
+                    state.step_results.append(result)
+                    state.skipped_steps += 1
                     continue
                 
                 # Get recovery path for this action
@@ -143,24 +150,24 @@ class ExecutionEngine:
                 # Execute with retry logic
                 result = await self._execute_with_recovery(
                     action=action,
-                    context=plan.state.context,
+                    context=context,
                     recovery_path=recovery_path,
                 )
                 
                 # Update state
-                plan.state.step_results.append(result)
-                plan.state.current_sequence = action.sequence + 1
+                state.step_results.append(result)
+                state.current_sequence = action.sequence + 1
                 
                 if result.status == StepStatus.COMPLETED:
-                    plan.state.completed_steps += 1
+                    state.completed_steps += 1
                 elif result.status == StepStatus.FAILED:
-                    plan.state.failed_steps += 1
+                    state.failed_steps += 1
                     if recovery_path and recovery_path.strategy == RecoveryStrategy.FAIL_FAST:
-                        plan.state.status = StepStatus.FAILED
+                        state.status = StepStatus.FAILED
                         break
                 elif result.status == StepStatus.BLOCKED:
-                    if plan.state.context.fail_on_governance_block:
-                        plan.state.status = StepStatus.BLOCKED
+                    if context.fail_on_governance_block:
+                        state.status = StepStatus.BLOCKED
                         break
                 
                 # Callback
@@ -168,24 +175,15 @@ class ExecutionEngine:
                     await on_step_complete(result)
             
             # Mark complete if we got through all steps
-            if plan.state.status == StepStatus.RUNNING:
-                plan.state.status = StepStatus.COMPLETED
-
+            if state.status == StepStatus.RUNNING:
+                state.status = StepStatus.COMPLETED
+                
         except Exception as e:
-            plan.state.status = StepStatus.FAILED
-            logger.exception(
-                "Execution failed with exception: plan_id=%s, error=%s",
-                plan.plan_id,
-                str(e),
-            )
-
-        logger.debug(
-            "Execution finished: plan_id=%s, final_status=%s, duration=%s",
-            plan.plan_id,
-            plan.state.status.value,
-            self._calc_total_duration(plan),
-        )
-        plan.state.completed_at = datetime.now(UTC).isoformat()
+            state.status = StepStatus.FAILED
+            # Log error but don't crash
+        
+        state.completed_at = datetime.now(UTC).isoformat()
+        return state
     
     async def _execute_with_recovery(
         self,
@@ -305,7 +303,8 @@ class ExecutionEngine:
     def _should_skip(
         self,
         sequence: int,
-        plan: EnhancedExecutionPlan
+        plan: EnhancedExecutionPlan,
+        state: ExecutionState,
     ) -> bool:
         """Check if this step should be skipped based on conditionals."""
         # Check conditionals
@@ -313,7 +312,7 @@ class ExecutionEngine:
             if sequence in cond.if_true or sequence in cond.if_false:
                 # Evaluate condition based on previous results
                 # For now, simple: if any previous step failed, skip dependent steps
-                for result in plan.state.step_results:
+                for result in state.step_results:
                     if result.status == StepStatus.FAILED:
                         if sequence in cond.if_true:
                             return True
@@ -348,20 +347,70 @@ class ExecutionEngine:
         end = datetime.fromisoformat(completed_at)
         return int((end - start).total_seconds() * 1000)
 
-    def _calc_total_duration(self, plan: EnhancedExecutionPlan) -> str:
-        """Calculate total execution duration as human-readable string."""
-        if plan.state is None:
-            return "unknown"
-        if plan.state.started_at is None or plan.state.completed_at is None:
-            return "incomplete"
 
-        start = datetime.fromisoformat(plan.state.started_at)
-        end = datetime.fromisoformat(plan.state.completed_at)
-        duration_sec = (end - start).total_seconds()
-
-        if duration_sec < 1:
-            return f"{int(duration_sec * 1000)}ms"
-        elif duration_sec < 60:
-            return f"{duration_sec:.1f}s"
-        else:
-            return f"{duration_sec / 60:.1f}m"
+class AgentContextInjector:
+    """Injects plan into LLM agent context for agent-guided execution.
+    
+    When execution mode is AGENT_GUIDED, this class generates
+    the context/prompt that should be injected into the LLM's
+    conversation to guide it through the plan.
+    """
+    
+    def generate_context(
+        self,
+        plan: EnhancedExecutionPlan,
+        state: ExecutionState,
+    ) -> str:
+        """Generate context string to inject into agent.
+        
+        Args:
+            plan: The execution plan.
+            state: Current execution state.
+            
+        Returns:
+            String to inject into agent context.
+        """
+        lines = [
+            "## Execution Plan",
+            "",
+            f"Plan ID: {plan.plan_id}",
+            f"Description: {plan.description or 'N/A'}",
+            "",
+            "### Constraints (MUST follow)",
+        ]
+        
+        for constraint in plan.constraints:
+            lines.append(f"- {constraint}")
+        
+        if not plan.constraints:
+            lines.append("- None specified")
+        
+        lines.extend([
+            "",
+            "### Steps to Execute",
+        ])
+        
+        for action in plan.actions:
+            status_marker = ""
+            if action.sequence < state.current_sequence:
+                result = state.step_results[action.sequence]
+                status_marker = f" [{result.status.value}]"
+            elif action.sequence == state.current_sequence:
+                status_marker = " [CURRENT]"
+            
+            lines.append(
+                f"{action.sequence + 1}. {action.tool_call.name}"
+                f"({', '.join(f'{k}={v}' for k, v in action.tool_call.arguments.items())})"
+                f"{status_marker}"
+            )
+        
+        lines.extend([
+            "",
+            "### Rules",
+            "- Execute steps in order",
+            "- Do not skip steps unless instructed",
+            "- Report any errors immediately",
+            "- Do not deviate from the plan without approval",
+        ])
+        
+        return "\n".join(lines)
