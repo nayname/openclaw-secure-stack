@@ -17,6 +17,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.models import RiskLevel, Severity
+from datetime import UTC, datetime
 
 # --- Enums ---
 
@@ -437,6 +438,83 @@ class ExecutionState(BaseModel):
         if self.total_steps == 0:
             return 100.0
         return (self.completed_steps / self.total_steps) * 100
+
+
+class EnhancedExecutionPlan(BaseModel):
+    """Execution plan enhanced with LLM-generated operational knowledge.
+
+    Wraps the base ExecutionPlan and adds:
+    - Human-readable description
+    - Constraints and preferences
+    - Recovery paths
+    - Conditional branches
+    - Execution mode configuration
+    """
+
+    model_config = ConfigDict(frozen=False)  # Mutable for state
+
+    # Base plan (immutable spec)
+    base_plan: ExecutionPlan
+
+    # LLM-generated enhancements
+    description: str | None = None
+    constraints: list[str] = Field(default_factory=list)
+    preferences: list[str] = Field(default_factory=list)
+    recovery_paths: list[RecoveryPath] = Field(default_factory=list)
+    conditionals: list[ConditionalBranch] = Field(default_factory=list)
+    execution_mode: ExecutionMode = ExecutionMode.GOVERNANCE_DRIVEN
+
+    # Schema-derived fields
+    operations: list[dict[str, Any]] = Field(default_factory=list)
+    global_constraints: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    # Runtime state (initialized when execution starts)
+    state: ExecutionState | None = None
+
+    # Convenience accessors
+    @property
+    def plan_id(self) -> str:
+        return self.base_plan.plan_id
+
+    @property
+    def session_id(self) -> str | None:
+        return self.base_plan.session_id
+
+    @property
+    def actions(self) -> list[PlannedAction]:
+        return self.base_plan.actions
+
+    @property
+    def risk_assessment(self) -> RiskAssessment:
+        return self.base_plan.risk_assessment
+
+    def initialize_state(self, session_id: str, user_id: str, token: str) -> None:
+        """Initialize execution state. Call before execute()."""
+        context = ExecutionContext(
+            plan_id=self.plan_id,
+            session_id=session_id,
+            user_id=user_id,
+            token=token,
+        )
+        self.state = ExecutionState(
+            plan_id=self.plan_id,
+            session_id=session_id,
+            context=context,
+            current_sequence=0,
+            status=StepStatus.PENDING,
+            total_steps=len(self.actions),
+        )
+
+
+class ConditionalBranch(BaseModel):
+    """Conditional execution branch."""
+
+    model_config = ConfigDict(frozen=True)
+
+    condition: str  # Expression to evaluate
+    if_true: list[int] = Field(default_factory=list)  # Step sequences to run if true
+    if_false: list[int] = Field(default_factory=list)  # Step sequences to run if false
 
 
 class RecoveryPath(BaseModel):
