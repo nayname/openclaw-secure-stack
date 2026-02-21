@@ -32,7 +32,8 @@ class LLMClient:
             timeout_seconds: Request timeout. Defaults to ANTHROPIC_TIMEOUT_SECONDS env var or 60.
 
         Raises:
-            LLMClientError: If ANTHROPIC_API_KEY is not set.
+            RuntimeError: If anthropic package is not installed.
+            LLMClientError: If ANTHROPIC_API_KEY is not set or invalid.
         """
         try:
             from anthropic import Anthropic, AuthenticationError

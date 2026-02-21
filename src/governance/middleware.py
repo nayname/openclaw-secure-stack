@@ -277,10 +277,15 @@ class GovernanceMiddleware:
             return enhanced_plan
 
         except Exception as e:
+            # Enhancement is best-effort; never allow failures here to
+            # impact core governance evaluation.
+            # Log with full context so bugs are visible in logs
             logger.warning(
-                "Plan enhancement failed: plan_id=%s, error=%s",
+                "Plan enhancement failed: plan_id=%s, error_type=%s, error=%s",
                 basic_plan.plan_id,
+                type(e).__name__,
                 e,
+                exc_info=True,  # Include stack trace
             )
             return None
 

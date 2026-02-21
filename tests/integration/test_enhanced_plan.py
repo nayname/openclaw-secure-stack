@@ -1117,6 +1117,40 @@ class TestMiddlewareCreateEnhancedPlan:
 
         assert middleware._enhancement_enabled is False
 
+    def test_create_enhanced_plan_logs_failure_with_details(
+            self,
+            middleware_with_enhancement,
+            sample_base_plan,
+            caplog,
+    ):
+        """Test that enhancement failures are logged with error type and traceback."""
+        import logging
+
+        middleware_with_enhancement._planner.enhance = MagicMock(
+            side_effect=ValueError("bad LLM response")
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = middleware_with_enhancement.create_enhanced_plan(
+                basic_plan=sample_base_plan,
+                session_id="session-456",
+                user_id="user-123",
+                token="token-abc",
+            )
+
+        assert result is None
+
+        # Find the relevant log record
+        enhancement_logs = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING and "enhancement failed" in r.message.lower()
+        ]
+        assert len(enhancement_logs) == 1
+
+        record = enhancement_logs[0]
+        assert record.exc_info is not None  # Stack trace included
+        assert "plan-123" in record.message
+        assert "ValueError" in record.message
 class TestLLMClientInit:
     """Tests for LLMClient initialization."""
 
