@@ -19,11 +19,6 @@ from src.governance.models import (
 )
 
 
-class ExecutionError(Exception):
-    """Raised when execution fails."""
-    pass
-
-
 class Executor:
     """Executes enhanced plans.
 
