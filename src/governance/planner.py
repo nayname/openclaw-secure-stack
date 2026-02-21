@@ -9,12 +9,16 @@ This module provides the PlanGenerator class for:
 
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import re
 import uuid
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from src.governance.models import (
     ExecutionPlan,
@@ -25,7 +29,36 @@ from src.governance.models import (
     RiskAssessment,
     RiskLevel,
     ToolCall,
+    ExecutionMode,
+    RecoveryPath,
+    ConditionalBranch,
+    RecoveryStrategy,
+    EnhancedExecutionPlan,
 )
+from src.llm.client import LLMClient
+
+ENHANCE_PLAN_PROMPT = """You are enhancing an execution plan with operational knowledge.
+
+## Base Plan
+{plan_json}
+
+## User Context
+{context}
+
+## Output Schema
+Your response MUST conform to this JSON schema:
+{schema}
+
+Generate an enhanced plan that:
+1. Adds a human-readable description
+2. Converts actions to operations with allow/deny rules
+3. Defines global constraints
+4. Adds recovery paths for risky steps
+5. Adds conditional branches based on step outcomes
+6. Sets appropriate execution mode
+
+Return ONLY valid JSON conforming to the schema. No markdown, no explanation.
+"""
 
 
 class PlanGenerator:
@@ -59,16 +92,279 @@ class PlanGenerator:
     PATH_KEYS = {"path", "file", "filepath", "filename", "directory", "dir"}
     URL_KEYS = {"url", "uri", "endpoint", "href"}
 
-    def __init__(self, patterns_path: str) -> None:
+    def __init__(
+        self,
+        patterns_path: str,
+        schema_path: str = "config/execution-plan.json"
+    ) -> None:
         """Initialize the plan generator.
 
         Args:
             patterns_path: Path to the intent-patterns.json config file.
+            llm: Optional LLM client for plan enhancement.
+            schema_path: Path to execution-plan.json schema file.
         """
         self._patterns_path = patterns_path
+        self._schema_path = schema_path
         self._risk_multipliers: dict[str, float] = {}
-        self._tool_categories: dict[str, str] = {}  # tool -> category
+        self._tool_categories: dict[str, str] = {}
+        self._schema: dict[str, Any] | None = None
         self._load_config()
+        self._load_schema()
+
+    def generate(
+            self,
+            intent: Intent,
+            request_body: dict[str, Any],
+            session_id: str | None = None,
+    ) -> ExecutionPlan:
+        """Generate an execution plan from classified intent.
+
+        Args:
+            intent: The classified intent for the request.
+            request_body: The original request body for hashing.
+            session_id: Optional session ID for tracking.
+
+        Returns:
+            A complete ExecutionPlan with actions and risk assessment.
+        """
+        # Generate unique plan ID
+        plan_id = str(uuid.uuid4())
+
+        # Compute request hash
+        request_json = json.dumps(request_body, sort_keys=True)
+        request_hash = hashlib.sha256(request_json.encode()).hexdigest()
+
+        # Build actions
+        actions = self._build_actions(intent)
+
+        # Assess risk
+        risk_assessment = self._assess_risk(actions)
+
+        return ExecutionPlan(
+            plan_id=plan_id,
+            session_id=session_id,
+            request_hash=request_hash,
+            actions=actions,
+            risk_assessment=risk_assessment,
+        )
+
+    # Sensitive argument keys that should be redacted before sending to LLM
+    SENSITIVE_KEYS = {
+        "password", "passwd", "secret", "token", "api_key", "apikey",
+        "auth", "authorization", "credential", "credentials", "private_key",
+        "privatekey", "access_token", "refresh_token", "bearer", "jwt",
+        "ssh_key", "sshkey", "passphrase", "pin", "otp", "mfa",
+    }
+
+    def enhance(
+            self,
+            plan: ExecutionPlan,
+            llm: LLMClient,
+            context: dict[str, Any] | None = None,
+    ) -> EnhancedExecutionPlan:
+        """Enhance a base plan with LLM-generated operational knowledge.
+
+        Reads schema from config/execution-plan.json and asks LLM to produce
+        enhancements conforming to that schema.
+
+        Args:
+            plan: The base execution plan to enhance.
+            context: Optional user/operational context for the LLM.
+            llm: LLM call through proxy
+
+        Returns:
+            EnhancedExecutionPlan wrapping the base plan with enhancements.
+
+        Raises:
+            RuntimeError: If no LLM client configured or schema not found.
+            ValueError: If LLM returns invalid JSON.
+        """
+        if llm is None:
+            raise RuntimeError("No LLM client configured for plan enhancement")
+
+        if self._schema is None:
+            raise RuntimeError(
+                f"Schema not found: {self._schema_path}. "
+                "Create config/execution-plan.json with the plan schema."
+            )
+
+        # Serialize and sanitize base plan for prompt
+        plan_dict = plan.model_dump(mode="json")
+        sanitized_plan = self._sanitize_for_llm(plan_dict)
+        plan_json = json.dumps(sanitized_plan, indent=2)
+
+        context_str = json.dumps(context or {}, indent=2)
+        schema_str = json.dumps(self._schema, indent=2)
+
+        # Build prompt
+        prompt = ENHANCE_PLAN_PROMPT.format(
+            plan_json=plan_json,
+            context=context_str,
+            schema=schema_str,
+        )
+
+        # Security audit: log external API call with sanitized plan
+        logger.info(
+            "SECURITY_AUDIT: Calling external LLM API for plan enhancement: "
+            "plan_id=%s, action_count=%d, fields_redacted=%s",
+            plan.plan_id,
+            len(plan.actions),
+            self._count_redacted_fields(sanitized_plan),
+        )
+
+        # Call LLM
+        raw = llm.complete(prompt=prompt, temperature=0)
+
+        # Parse response
+        enhanced_dict = self._parse_llm_response(raw)
+
+        # Build EnhancedExecutionPlan from base plan + LLM output
+        return self._build_enhanced_plan(plan, enhanced_dict)
+
+    def _sanitize_for_llm(self, data: Any) -> Any:
+        """Recursively sanitize data before sending to LLM.
+
+        Redacts values for sensitive keys to prevent credential leakage.
+        """
+        if isinstance(data, dict):
+            result = {}
+            for key, value in data.items():
+                if key.lower() in self.SENSITIVE_KEYS:
+                    result[key] = "[REDACTED]"
+                else:
+                    result[key] = self._sanitize_for_llm(value)
+            return result
+        elif isinstance(data, list):
+            return [self._sanitize_for_llm(item) for item in data]
+        else:
+            return data
+
+    def _count_redacted_fields(self, data: Any) -> int:
+        """Count how many fields were redacted in sanitized data."""
+        count = 0
+        if isinstance(data, dict):
+            for key, value in data.items():
+                if value == "[REDACTED]":
+                    count += 1
+                else:
+                    count += self._count_redacted_fields(value)
+        elif isinstance(data, list):
+            for item in data:
+                count += self._count_redacted_fields(item)
+        return count
+
+    def _parse_llm_response(self, raw: str) -> dict[str, Any]:
+        """Parse and clean LLM JSON response."""
+        cleaned = raw.strip()
+
+        # Strip markdown code fences if present
+        if cleaned.startswith("```"):
+            # Remove opening fence (with optional language tag)
+            cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+        if cleaned.endswith("```"):
+            cleaned = cleaned.rsplit("```", 1)[0]
+        cleaned = cleaned.strip()
+
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"LLM returned invalid JSON: {e}\nRaw: {raw[:500]}") from e
+
+    def _build_enhanced_plan(
+            self,
+            base_plan: ExecutionPlan,
+            llm_output: dict[str, Any],
+    ) -> EnhancedExecutionPlan:
+        """Build EnhancedExecutionPlan from base plan and LLM output."""
+
+        # Parse recovery paths
+        recovery_paths = self._parse_recovery_paths(
+            llm_output.get("recoveryPaths", [])
+        )
+
+        # Parse conditionals
+        conditionals = self._parse_conditionals(
+            llm_output.get("conditionals", [])
+        )
+
+        # Parse execution mode
+        execution_mode = self._parse_execution_mode(
+            llm_output.get("executionMode")
+        )
+
+        # Extract constraints list from global constraints object
+        global_constraints = llm_output.get("constraints", {})
+        constraints_list: list[str] = []
+        if isinstance(global_constraints, dict):
+            # Convert constraint flags to human-readable strings
+            if global_constraints.get("allowUnplanned") is False:
+                constraints_list.append("No unplanned operations allowed")
+            if global_constraints.get("requireSequential"):
+                constraints_list.append("Operations must execute sequentially")
+            if max_ops := global_constraints.get("maxTotalOperations"):
+                constraints_list.append(f"Maximum {max_ops} total operations")
+            if max_dur := global_constraints.get("maxDurationMs"):
+                constraints_list.append(f"Maximum duration: {max_dur}ms")
+        elif isinstance(global_constraints, list):
+            constraints_list = global_constraints
+
+        return EnhancedExecutionPlan(
+            base_plan=base_plan,
+            description=llm_output.get("description"),
+            constraints=constraints_list,
+            preferences=llm_output.get("preferences", []),
+            recovery_paths=recovery_paths,
+            conditionals=conditionals,
+            execution_mode=execution_mode,
+            operations=llm_output.get("operations", []),
+            global_constraints=global_constraints if isinstance(global_constraints, dict) else {},
+            metadata=llm_output.get("metadata", {}),
+        )
+
+    def _parse_recovery_paths(self, paths: list[dict[str, Any]]) -> list[RecoveryPath]:
+        """Parse recovery paths from LLM output."""
+        result = []
+        for p in paths:
+            try:
+                strategy_str = p.get("strategy", "fail_fast")
+                strategy = RecoveryStrategy(strategy_str)
+                result.append(
+                    RecoveryPath(
+                        trigger_step=p["triggerStep"],
+                        strategy=strategy,
+                        max_retries=p.get("maxRetries", 3),
+                        backoff_ms=p.get("backoffMs", 1000),
+                        trigger_errors=p.get("triggerErrors", []),
+                    )
+                )
+            except (KeyError, ValueError):
+                continue  # Skip malformed entries
+        return result
+
+    def _parse_conditionals(self, conditionals: list[dict[str, Any]]) -> list[ConditionalBranch]:
+        """Parse conditional branches from LLM output."""
+        result = []
+        for c in conditionals:
+            try:
+                result.append(
+                    ConditionalBranch(
+                        condition=c["condition"],
+                        if_true=c.get("ifTrue", []),
+                        if_false=c.get("ifFalse", []),
+                    )
+                )
+            except KeyError:
+                continue
+        return result
+
+    def _parse_execution_mode(self, mode_str: str | None) -> ExecutionMode:
+        """Parse execution mode from string."""
+        if mode_str == "agent_guided":
+            return ExecutionMode.AGENT_GUIDED
+        elif mode_str == "hybrid":
+            return ExecutionMode.HYBRID
+        return ExecutionMode.GOVERNANCE_DRIVEN
 
     def _load_config(self) -> None:
         """Load configuration from patterns file."""
@@ -81,6 +377,14 @@ class PlanGenerator:
             for category, tools in config.get("tool_categories", {}).items():
                 for tool in tools:
                     self._tool_categories[tool.lower()] = category
+
+    def _load_schema(self) -> None:
+        """Load execution plan schema."""
+        path = Path(self._schema_path)
+        if path.exists():
+            self._schema = json.loads(path.read_text())
+        else:
+            self._schema = None
 
     def _categorize_tool(self, tool_name: str) -> IntentCategory:
         """Get the category for a tool name."""
@@ -254,41 +558,4 @@ class PlanGenerator:
             level=level,
             factors=factors,
             mitigations=mitigations,
-        )
-
-    def generate(
-        self,
-        intent: Intent,
-        request_body: dict[str, Any],
-        session_id: str | None = None,
-    ) -> ExecutionPlan:
-        """Generate an execution plan from classified intent.
-
-        Args:
-            intent: The classified intent for the request.
-            request_body: The original request body for hashing.
-            session_id: Optional session ID for tracking.
-
-        Returns:
-            A complete ExecutionPlan with actions and risk assessment.
-        """
-        # Generate unique plan ID
-        plan_id = str(uuid.uuid4())
-
-        # Compute request hash
-        request_json = json.dumps(request_body, sort_keys=True)
-        request_hash = hashlib.sha256(request_json.encode()).hexdigest()
-
-        # Build actions
-        actions = self._build_actions(intent)
-
-        # Assess risk
-        risk_assessment = self._assess_risk(actions)
-
-        return ExecutionPlan(
-            plan_id=plan_id,
-            session_id=session_id,
-            request_hash=request_hash,
-            actions=actions,
-            risk_assessment=risk_assessment,
         )

@@ -11,8 +11,10 @@ This module provides the GovernanceMiddleware class that orchestrates:
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from src.governance.approver import ApprovalGate
@@ -23,11 +25,15 @@ from src.governance.models import (
     GovernanceDecision,
     PolicyViolation,
     ToolCall,
+    ExecutionPlan, EnhancedExecutionPlan,
 )
 from src.governance.planner import PlanGenerator
 from src.governance.session import SessionManager
 from src.governance.store import PlanStore
 from src.governance.validator import PolicyValidator
+from src.llm.client import LLMClient
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -81,10 +87,23 @@ class GovernanceMiddleware:
         """
         self._settings = settings
         self._enabled = settings.get("enabled", True)
+        self._llm: LLMClient | None = None  # Lazy initialization
 
         if self._enabled:
             self._classifier = IntentClassifier(patterns_path)
-            self._planner = PlanGenerator(patterns_path)
+
+            # Resolve schema path to absolute path
+            enhancement_settings = settings.get("enhancement", {})
+            schema_path = enhancement_settings.get(
+                "schema_path",
+                "config/execution-plan.json"
+            )
+            # Make absolute relative to patterns_path parent directory
+            if not Path(schema_path).is_absolute():
+                base_dir = Path(patterns_path).parent.parent  # Go up from config/
+                schema_path = str(base_dir / schema_path)
+
+            self._planner = PlanGenerator(patterns_path, schema_path=schema_path)
             self._validator = PolicyValidator(policy_path)
             self._store = PlanStore(db_path, secret)
             self._enforcer = GovernanceEnforcer(db_path, secret)
@@ -106,6 +125,16 @@ class GovernanceMiddleware:
             enforcement_settings = settings.get("enforcement", {})
             self._enforcement_enabled = enforcement_settings.get("enabled", True)
             self._token_ttl = enforcement_settings.get("token_ttl_seconds", 900)
+
+            # Enhancement settings
+            self._enhancement_enabled = enhancement_settings.get("enabled", False)
+            self._enhancement_context = enhancement_settings.get("default_context", {})
+
+    def _get_llm(self) -> LLMClient:
+        """Lazy-load LLM client on first use."""
+        if self._llm is None:
+            self._llm = LLMClient()
+        return self._llm
 
     def evaluate(
         self,
@@ -140,7 +169,7 @@ class GovernanceMiddleware:
         # Classify intent
         intent = self._classifier.classify(request_body)
 
-        # Generate plan
+        # Generate base plan from intent
         plan = self._planner.generate(
             intent=intent,
             request_body=request_body,
@@ -188,6 +217,12 @@ class GovernanceMiddleware:
         # Store plan and issue token
         plan_id, token = self._store.store(plan, ttl_seconds=self._token_ttl)
 
+        # Optionally create enhanced plan (currently not persisted)
+        if self._enhancement_enabled:
+            self.create_enhanced_plan(
+                plan, effective_session_id, user_id, token
+            )
+
         # Record in session if enabled
         if self._session_enabled:
             for action in plan.actions:
@@ -206,6 +241,53 @@ class GovernanceMiddleware:
             violations=[],
             message="Request allowed",
         )
+
+    def create_enhanced_plan(
+        self,
+        basic_plan: ExecutionPlan,
+        session_id: str | None,
+        user_id: str,
+        token: str,
+    ) -> EnhancedExecutionPlan | None:
+        """Create an enhanced plan from a basic plan.
+
+        Args:
+            basic_plan: The base execution plan.
+            session_id: Session ID.
+            user_id: User ID.
+            token: Plan token.
+
+        Returns:
+            EnhancedExecutionPlan if successful, None if enhancement fails.
+        """
+        try:
+            # Enhance with LLM
+            enhanced_plan = self._planner.enhance(
+                basic_plan,
+                llm=self._get_llm(),
+                context=self._enhancement_context,
+            )
+
+            enhanced_plan.initialize_state(
+                session_id=session_id,
+                user_id=user_id,
+                token=token,
+            )
+
+            return enhanced_plan
+
+        except Exception as e:
+            # Enhancement is best-effort; never allow failures here to
+            # impact core governance evaluation.
+            # Log with full context so bugs are visible in logs
+            logger.warning(
+                "Plan enhancement failed: plan_id=%s, error_type=%s, error=%s",
+                basic_plan.plan_id,
+                type(e).__name__,
+                e,
+                exc_info=True,  # Include stack trace
+            )
+            return None
 
     def enforce(
         self,
