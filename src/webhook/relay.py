@@ -80,15 +80,21 @@ def _build_content_parts(
                     "format": fmt,
                 },
             })
-        else:
-            # DOCUMENT, VIDEO → generic file block
+        elif attachment.mime_type == "application/pdf":
+            # Anthropic-native document block (Claude reads PDF content natively)
             parts.append({
-                "type": "file",
-                "file": {
-                    "filename": attachment.file_name,
-                    "content_type": attachment.mime_type,
+                "type": "document",
+                "source": {
+                    "type": "base64",
+                    "media_type": "application/pdf",
                     "data": encoded,
                 },
+            })
+        else:
+            # VIDEO and other binary formats unsupported by LLM → text placeholder
+            parts.append({
+                "type": "text",
+                "text": f"[{attachment.type.value}: {attachment.file_name}]",
             })
 
     return parts

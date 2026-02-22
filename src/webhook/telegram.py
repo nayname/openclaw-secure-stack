@@ -274,7 +274,8 @@ class TelegramRelay:
         url = f"https://api.telegram.org/bot{self._bot_token}/sendMessage"
         payload = {"chat_id": chat_id, "text": text}
 
-        async with httpx.AsyncClient(verify=True) as client:
+        timeout = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
+        async with httpx.AsyncClient(verify=True, timeout=timeout) as client:
             for attempt in range(_MAX_RETRIES + 1):
                 resp = await client.post(url, json=payload)
 
