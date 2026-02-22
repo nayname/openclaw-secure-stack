@@ -249,6 +249,7 @@ class TelegramRelay:
                     "Failed to download Telegram file %s (%s), skipping",
                     info.file_id,
                     info.file_type.value,
+                    exc_info=True,
                 )
 
         return attachments

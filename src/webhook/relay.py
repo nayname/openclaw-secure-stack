@@ -309,7 +309,7 @@ class WebhookRelayPipeline:
                     text = resp.text
 
                 return WebhookResponse(text=text, status_code=resp.status_code)
-        except (httpx.ConnectError, httpx.TimeoutException):
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError):
             return WebhookResponse(
                 text="Upstream unavailable",
                 status_code=502,
