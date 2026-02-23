@@ -20,6 +20,7 @@ from src.governance.models import (
 
 
 class Executor:
+    # EXPERIMENTAL: This engine is not yet integrated into the main application.
     """Executes enhanced plans.
 
     Entry point for all plan execution. Handles:
