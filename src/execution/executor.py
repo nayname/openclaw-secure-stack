@@ -1,5 +1,7 @@
 """Plan execution entry point.
 
+EXPERIMENTAL: This module is not yet integrated into the main application.
+
 This module provides the Executor class that:
 - Takes an evaluated plan
 - Initializes execution state
@@ -20,7 +22,6 @@ from src.governance.models import (
 
 
 class Executor:
-    # EXPERIMENTAL: This engine is not yet integrated into the main application.
     """Executes enhanced plans.
 
     Entry point for all plan execution. Handles:
