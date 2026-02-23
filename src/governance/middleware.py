@@ -11,6 +11,7 @@ This module provides the GovernanceMiddleware class that orchestrates:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -222,9 +223,12 @@ class GovernanceMiddleware:
         plan_id, token = self._store.store(plan, ttl_seconds=self._token_ttl)
 
         # Optionally create enhanced plan (currently not persisted)
+        # Fire-and-forget: runs in thread pool to avoid blocking event loop
         if self._enhancement_enabled:
-            self.create_enhanced_plan(
-                plan, effective_session_id, user_id, token
+            asyncio.create_task(
+                asyncio.to_thread(
+                    self.create_enhanced_plan, plan, effective_session_id, user_id, token
+                )
             )
 
         # Record in session if enabled

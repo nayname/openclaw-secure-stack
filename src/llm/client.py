@@ -72,14 +72,9 @@ class LLMClient:
         Raises:
             LLMClientError: If the API call fails or returns empty response.
         """
-        try:
-            from anthropic import APIError
-
-        except ImportError as e:
-            raise RuntimeError(
-                "LLM enhancement requires the 'anthropic' package. "
-                "Install it with: pip install anthropic"
-            ) from e
+        # Import APIError for exception handling
+        # (anthropic is guaranteed available since __init__ succeeded)
+        from anthropic import APIError
 
         try:
             response = self.client.messages.create(
