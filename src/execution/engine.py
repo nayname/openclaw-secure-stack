@@ -1,5 +1,7 @@
 """Execution engine for the executor layer.
 
+EXPERIMENTAL: This module is not yet integrated into the main application.
+
 This module provides the ExecutionEngine class for:
 - Driving plan execution step by step
 - Handling governance checks at each step

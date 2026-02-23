@@ -64,7 +64,7 @@ class Executor:
             return {
                 "type": "agent_plan",
                 "plan_id": plan.plan_id,
-                "agentContext": self._injector.generate_context(plan),
+                "agent_context": self._injector.generate_context(plan),
             }
 
         await self._engine.execute(

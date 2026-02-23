@@ -794,8 +794,8 @@ class TestExecutor:
         assert isinstance(result, dict)
         assert result["type"] == "agent_plan"
         assert result["plan_id"] == "plan-123"
-        assert "agentContext" in result
-        assert "Agent guided test" in result["agentContext"]
+        assert "agent_context" in result
+        assert "Agent guided test" in result["agent_context"]
 
     @pytest.mark.asyncio
     async def test_execute_agent_mode_includes_constraints(
@@ -827,8 +827,8 @@ class TestExecutor:
 
         result = await executor.execute(plan=enhanced)
 
-        assert "No deletion" in result["agentContext"]
-        assert "Max 3 retries" in result["agentContext"]
+        assert "No deletion" in result["agent_context"]
+        assert "Max 3 retries" in result["agent_context"]
 
     @pytest.mark.asyncio
     async def test_execute_creates_engine_for_governance_mode(

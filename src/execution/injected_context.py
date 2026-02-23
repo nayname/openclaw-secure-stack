@@ -1,4 +1,7 @@
-"""Agent context injection for agent-guided execution."""
+"""Agent context injection for agent-guided execution.
+
+EXPERIMENTAL: This module is not yet integrated into the main application.
+"""
 
 from __future__ import annotations
 

@@ -285,9 +285,10 @@ class GovernanceMiddleware:
             return enhanced_plan
 
         except Exception as e:
-            # Enhancement is best-effort; never allow failures here to
-            # impact core governance evaluation.
-            # Log with full context so bugs are visible in logs
+            # Enhancement is best-effort; failures should not impact core
+            # governance evaluation. Note: jsonschema.ValidationError from
+            # enhance() is caught here intentionally - invalid LLM output
+            # is treated as enhancement failure, not a fatal error.
             logger.warning(
                 "Plan enhancement failed: plan_id=%s, error_type=%s, error=%s",
                 basic_plan.plan_id,
