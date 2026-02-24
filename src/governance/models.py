@@ -399,7 +399,12 @@ class EnhancedExecutionPlan(BaseModel):
     - Execution mode configuration
     """
 
-    model_config = ConfigDict(frozen=False)  # Mutable for state
+    # NOTE: frozen=False breaks immutability contract used by other models.
+    # This is intentional but temporary - ExecutionState is embedded in the plan
+    # for simplicity during initial development. Long-term fix: extract state
+    # to a separate mutable container held by the execution engine, then freeze
+    # this model. Deferred until plan structure stabilizes.
+    model_config = ConfigDict(frozen=False)
 
     # Base plan (immutable spec)
     base_plan: ExecutionPlan
