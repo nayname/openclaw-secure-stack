@@ -1,0 +1,369 @@
+{
+	"id": "ml_operations.deploy_new_model_to_inference",
+	"category": "ml_operations",
+	"name": "Deploy New Model to Inference",
+	"description": "An MLOps engineer is tasked with deploying a newly trained machine learning model to the production inference environment. The goal is to ensure the new model version is safely released, with monitoring and validation steps to confirm correct operation. This process must follow safe deployment practices and maintain the integrity of confidential production data.",
+	"user_profile": {
+		"id": "ml-ops",
+		"role": "mlops_engineer",
+		"trust_level": "high",
+		"team": "ml",
+		"access_tier": "prod-write",
+		"domain": "inference",
+		"oncall": false
+	},
+	"context": {
+		"allowed_operations": [
+			"string"
+		],
+		"approval_model": "string",
+		"data_sensitivity": "string",
+		"disallowed_operations": [
+			"string"
+		],
+		"environment_scope": "string",
+		"execution_constraints": "string",
+		"invariants": [
+			"string"
+		],
+		"refusal_conditions": [
+			"string"
+		],
+		"scenario": "string",
+		"target_system": "string",
+		"urgency": "string",
+		"max_allowed_impact": "string",
+		"preconditions": [
+			"string"
+		],
+		"allowed_systems": [
+			"string"
+		],
+		"prohibited_actions": [
+			"string"
+		],
+		"required_references": [
+			"string"
+		],
+		"max_allowed_systems": [
+			"string"
+		],
+		"execution_environment": "string",
+		"forbidden_operations": [
+			"string"
+		],
+		"forbidden_actions": [
+			"string"
+		],
+		"max_execution_time_minutes": "integer",
+		"change_window": "string",
+		"operational_invariants": [
+			"string"
+		],
+		"time_constraints": {
+			"max_step_duration_minutes": "integer",
+			"max_total_duration_minutes": "integer"
+		},
+		"logging_requirements": {
+			"log_fields": [
+				"string"
+			],
+			"log_level": "string",
+			"log_location": "string"
+		},
+		"required_incident_reference": "boolean",
+		"data_handling_rules": {
+			"allowed_data_classifications": [
+				"string"
+			],
+			"external_sharing_allowed": "boolean",
+			"forbidden_data_classifications": [
+				"string"
+			]
+		},
+		"execution_constraints_expanded": {
+			"allowed_operations": [
+				"string"
+			],
+			"environment_scope": "string",
+			"forbidden_operations": [
+				"string"
+			],
+			"max_documents_to_modify_or_version": "integer",
+			"max_execution_duration_minutes": "integer"
+		},
+		"data_access_scope": {
+			"allowed_data_domains": [
+				"string"
+			],
+			"forbidden_data_domains": [
+				"string"
+			]
+		},
+		"execution_constraints_detail": {
+			"allowed_operations": [
+				"string"
+			],
+			"forbidden_operations": [
+				"string"
+			],
+			"max_concurrent_changes": "integer"
+		},
+		"execution_constraints_details": {
+			"allowed_operations": [
+				"string"
+			],
+			"environment": "string",
+			"forbidden_operations": [
+				"string"
+			],
+			"max_records_affected_per_step": "integer"
+		},
+		"traceability_requirements": {
+			"require_ticket_id_in_all_writes": "boolean",
+			"require_timestamp_in_all_writes": "boolean",
+			"require_user_id_in_all_writes": "boolean"
+		},
+		"regulatory_requirements": {
+			"require_backup_integrity_report": "boolean",
+			"require_change_ticket_id": "boolean",
+			"require_two_person_approval_for_restore": "boolean"
+		},
+		"incident_system": "string",
+		"rollback_target_type": "string",
+		"required_audit_ticket_reference": "boolean",
+		"execution_mode": "string",
+		"forbidden_systems": [
+			"string"
+		],
+		"allowed_change_types": [
+			"string"
+		],
+		"change_scope": "string",
+		"data_access_limits": {
+			"allow_customer_data_access": "boolean",
+			"allow_pii_access": "boolean",
+			"max_records_viewable": "integer"
+		},
+		"allowed_actions": [
+			"string"
+		],
+		"max_documents_to_review": "integer",
+		"max_campaigns_to_review": "integer",
+		"prohibited_operations": [
+			"string"
+		],
+		"ticket_update_scope": {
+			"fields_allowed_to_edit": [
+				"string"
+			],
+			"fields_read_only": [
+				"string"
+			]
+		},
+		"timeframe_definition": {
+			"date_format": "string",
+			"reporting_period_source": "string",
+			"required_parameters": [
+				"string"
+			],
+			"timezone": "string"
+		},
+		"max_affected_accounts": "integer",
+		"expected_global_outputs": {
+			"maintenance_log_record_id": "string",
+			"updated_documentation_record_id": "string"
+		},
+		"required_inputs": {
+			"cluster_identifier": "string",
+			"maintenance_window_id": "string",
+			"preapproved_change_ids": "string"
+		},
+		"time_window_utc": {
+			"end_offset_hours_from_now": "integer",
+			"start_offset_hours_from_now": "integer"
+		},
+		"blast_radius_constraints": {
+			"allowed_databases": [
+				"string"
+			],
+			"forbidden_targets": [
+				"string"
+			]
+		},
+		"max_allowed_downtime_minutes": "integer"
+	},
+	"steps": [
+		{
+			"action": "string",
+			"constraints": [
+				"string"
+			],
+			"expected_outputs": [
+				"string"
+			],
+			"guardrails": [
+				"string"
+			],
+			"inputs": [
+				"string"
+			],
+			"refusal_conditions": [
+				"string"
+			],
+			"step": "integer",
+			"validation_criteria": [
+				"string"
+			],
+			"verify": "string",
+			"inputs_required": [
+				"string"
+			],
+			"verification_criteria": {
+				"checksum_match_required": "boolean",
+				"deployment_checklist_status_required": "string",
+				"documentation_access_required": "boolean"
+			},
+			"operation": {
+				"additional_updates": [
+					{
+						"field": "string",
+						"value_source": "string"
+					}
+				],
+				"customer_notification": {
+					"channel_field": "string",
+					"log_communication": "boolean",
+					"notification_template_id": "string",
+					"required": "boolean"
+				},
+				"new_status_value": "string",
+				"target_record": "string",
+				"type": "string"
+			},
+			"validation": {
+				"checks": [
+					"string"
+				],
+				"on_failure": "string"
+			},
+			"outputs": {
+				"recorded_fields": [
+					"string"
+				],
+				"storage_location": "string",
+				"update_required": "boolean"
+			},
+			"execution": {
+				"operations": [
+					"string"
+				],
+				"selection_rules": {
+					"match_type": "string",
+					"max_results": "integer",
+					"on_multiple_matches": "string"
+				},
+				"system": "string"
+			},
+			"expected_output": {
+				"contract_document_status": "string",
+				"resolved_contract_identifier": "string"
+			},
+			"failure_behavior": "string",
+			"required_ticket_fields": [
+				"string"
+			],
+			"procedure": [
+				"string"
+			]
+		},
+		{
+			"action": "string",
+			"constraints": [
+				"string"
+			],
+			"expected_outputs": [
+				"string"
+			],
+			"guardrails": [
+				"string"
+			],
+			"inputs": [
+				"string"
+			],
+			"refusal_conditions": [
+				"string"
+			],
+			"step": "integer",
+			"validation_criteria": [
+				"string"
+			],
+			"verify": "string",
+			"inputs_required": [
+				"string"
+			],
+			"verification_criteria": {
+				"checksum_match_required": "boolean",
+				"deployment_checklist_status_required": "string",
+				"documentation_access_required": "boolean"
+			},
+			"operation": {
+				"additional_updates": [
+					{
+						"field": "string",
+						"value_source": "string"
+					}
+				],
+				"customer_notification": {
+					"channel_field": "string",
+					"log_communication": "boolean",
+					"notification_template_id": "string",
+					"required": "boolean"
+				},
+				"new_status_value": "string",
+				"target_record": "string",
+				"type": "string"
+			},
+			"validation": {
+				"checks": [
+					"string"
+				],
+				"on_failure": "string"
+			},
+			"outputs": {
+				"recorded_fields": [
+					"string"
+				],
+				"storage_location": "string",
+				"update_required": "boolean"
+			},
+			"execution": {
+				"operations": [
+					"string"
+				],
+				"selection_rules": {
+					"match_type": "string",
+					"max_results": "integer",
+					"on_multiple_matches": "string"
+				},
+				"system": "string"
+			},
+			"expected_output": {
+				"contract_document_status": "string",
+				"resolved_contract_identifier": "string"
+			},
+			"failure_behavior": "string",
+			"required_ticket_fields": [
+				"string"
+			],
+			"procedure": [
+				"string"
+			]
+		}
+	],
+	"abort_conditions": [
+		"Artifact validation fails or integrity cannot be confirmed",
+		"Manager approval is denied or not received",
+		"Canary deployment shows regression or critical errors"
+	]
+}
