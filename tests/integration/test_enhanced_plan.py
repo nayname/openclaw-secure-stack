@@ -410,8 +410,9 @@ class TestPlanGeneratorEnhance:
             patterns_config: str,
             schema_config: str,
             sample_execution_plan: ExecutionPlan,
+            caplog,
     ):
-        """Test that malformed recovery paths are skipped."""
+        """Test that malformed recovery paths are skipped and logged."""
         llm = MagicMock()
         llm.complete = MagicMock(return_value=json.dumps({
             "description": "Test",
@@ -424,20 +425,26 @@ class TestPlanGeneratorEnhance:
             ],
         }))
 
-        generator = PlanGenerator(patterns_config, schema_path=schema_config)
-        enhanced = generator.enhance(sample_execution_plan, llm=llm)
+        import logging
+        with caplog.at_level(logging.DEBUG):
+            generator = PlanGenerator(patterns_config, schema_path=schema_config)
+            enhanced = generator.enhance(sample_execution_plan, llm=llm)
 
         # Only the valid one should be parsed
         assert len(enhanced.recovery_paths) == 1
         assert enhanced.recovery_paths[0].trigger_step == 0
+
+        # Verify malformed entries were logged
+        assert "Skipping malformed recovery_path entry" in caplog.text
 
     def test_enhance_skips_malformed_conditionals(
             self,
             patterns_config: str,
             schema_config: str,
             sample_execution_plan: ExecutionPlan,
+            caplog,
     ):
-        """Test that malformed conditionals are skipped."""
+        """Test that malformed conditionals are skipped and logged."""
         llm = MagicMock()
         llm.complete = MagicMock(return_value=json.dumps({
             "description": "Test",
@@ -449,11 +456,16 @@ class TestPlanGeneratorEnhance:
             ],
         }))
 
-        generator = PlanGenerator(patterns_config, schema_path=schema_config)
-        enhanced = generator.enhance(sample_execution_plan, llm=llm)
+        import logging
+        with caplog.at_level(logging.DEBUG):
+            generator = PlanGenerator(patterns_config, schema_path=schema_config)
+            enhanced = generator.enhance(sample_execution_plan, llm=llm)
 
         assert len(enhanced.conditionals) == 1
         assert enhanced.conditionals[0].condition == "valid"
+
+        # Verify malformed entry was logged
+        assert "Skipping malformed conditional entry" in caplog.text
 
 
 # --- EnhancedExecutionPlan Model Tests ---
@@ -1377,4 +1389,3 @@ class TestLLMClientComplete:
 
         call_args = mock_anthropic.messages.create.call_args
         assert call_args.kwargs["max_tokens"] == 4096
-

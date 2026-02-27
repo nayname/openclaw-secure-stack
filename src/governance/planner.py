@@ -399,8 +399,9 @@ class PlanGenerator:
                         trigger_errors=p.get("triggerErrors", []),
                     )
                 )
-            except (KeyError, ValueError):
-                continue  # Skip malformed entries
+            except (KeyError, ValueError) as e:
+                logger.debug("Skipping malformed recovery_path entry: %s", e)
+                continue
         return result
 
     def _parse_conditionals(self, conditionals: list[dict[str, Any]]) -> list[ConditionalBranch]:
@@ -415,7 +416,8 @@ class PlanGenerator:
                         if_false=c.get("ifFalse", []),
                     )
                 )
-            except KeyError:
+            except KeyError as e:
+                logger.debug("Skipping malformed conditional entry: %s", e)
                 continue
         return result
 
