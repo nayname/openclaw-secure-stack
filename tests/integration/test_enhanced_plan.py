@@ -12,6 +12,7 @@ Tests cover:
 from __future__ import annotations
 
 import json
+import os
 import sys
 
 import pytest
@@ -219,6 +220,10 @@ def schema_config(tmp_path) -> str:
     schema_path.write_text(json.dumps(schema))
     return str(schema_path)
 
+requires_llm = pytest.mark.skipif(
+    not os.getenv("ANTHROPIC_API_KEY"),
+    reason="Requires ANTHROPIC_API_KEY"
+)
 
 # --- PlanGenerator Tests ---
 class TestPlanGeneratorEnhance:
@@ -996,6 +1001,7 @@ class TestMiddlewareCreateEnhancedPlan:
             settings=settings,
         )
 
+    @requires_llm
     def test_create_enhanced_plan_returns_enhanced_plan(
         self,
         middleware_with_enhancement,
@@ -1017,6 +1023,7 @@ class TestMiddlewareCreateEnhancedPlan:
         assert isinstance(result, EnhancedExecutionPlan)
         assert result.description == "Test enhanced plan"
 
+    @requires_llm
     def test_create_enhanced_plan_initializes_state(
         self,
         middleware_with_enhancement,
@@ -1038,6 +1045,7 @@ class TestMiddlewareCreateEnhancedPlan:
         assert result.state.context.user_id == "user-123"
         assert result.state.context.token == "token-abc"
 
+    @requires_llm
     def test_create_enhanced_plan_passes_enhancement_context(
         self,
         middleware_with_enhancement,
@@ -1058,6 +1066,7 @@ class TestMiddlewareCreateEnhancedPlan:
         call_kwargs = middleware_with_enhancement._planner.enhance.call_args.kwargs
         assert call_kwargs["context"] == {"environment": "test", "user_role": "tester"}
 
+    @requires_llm
     def test_create_enhanced_plan_lazy_loads_llm(
         self,
         middleware_with_enhancement,
@@ -1134,6 +1143,7 @@ class TestMiddlewareCreateEnhancedPlan:
 
         assert middleware._enhancement_enabled is False
 
+    @requires_llm
     def test_create_enhanced_plan_logs_failure_with_details(
             self,
             middleware_with_enhancement,
