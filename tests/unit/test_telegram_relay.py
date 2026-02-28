@@ -7,7 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.webhook.telegram import TelegramRelay
+from src.webhook.models import Attachment, AttachmentType
+from src.webhook.telegram import TelegramExtraction, TelegramFileInfo, TelegramRelay
 
 
 def _make_secret_hash(bot_token: str) -> str:
@@ -60,9 +61,9 @@ class TestTelegramMessageExtraction:
                 "text": "hello world",
             },
         }
-        update_id, text, chat_id = relay.extract_message(update)
-        assert text == "hello world"
-        assert chat_id == 456
+        extraction = relay.extract_message(update)
+        assert extraction.text == "hello world"
+        assert extraction.chat_id == 456
 
     def test_extracts_update_id(self) -> None:
         relay = TelegramRelay(bot_token="test")
@@ -70,8 +71,8 @@ class TestTelegramMessageExtraction:
             "update_id": 999,
             "message": {"chat": {"id": 1}, "text": "hi"},
         }
-        update_id, _, _ = relay.extract_message(update)
-        assert update_id == 999
+        extraction = relay.extract_message(update)
+        assert extraction.update_id == 999
 
     def test_handles_missing_text(self) -> None:
         relay = TelegramRelay(bot_token="test")
@@ -79,8 +80,8 @@ class TestTelegramMessageExtraction:
             "update_id": 123,
             "message": {"chat": {"id": 1}},
         }
-        _, text, _ = relay.extract_message(update)
-        assert text == ""
+        extraction = relay.extract_message(update)
+        assert extraction.text == ""
 
     def test_handles_edited_message(self) -> None:
         relay = TelegramRelay(bot_token="test")
@@ -91,17 +92,274 @@ class TestTelegramMessageExtraction:
                 "text": "edited text",
             },
         }
-        _, text, chat_id = relay.extract_message(update)
-        assert text == "edited text"
-        assert chat_id == 789
+        extraction = relay.extract_message(update)
+        assert extraction.text == "edited text"
+        assert extraction.chat_id == 789
 
     def test_no_message_returns_empty(self) -> None:
         relay = TelegramRelay(bot_token="test")
         update = {"update_id": 123}
-        update_id, text, chat_id = relay.extract_message(update)
-        assert update_id == 123
-        assert text == ""
-        assert chat_id == 0
+        extraction = relay.extract_message(update)
+        assert extraction.update_id == 123
+        assert extraction.text == ""
+        assert extraction.chat_id == 0
+
+
+class TestTelegramFileExtraction:
+    """Extraction of file metadata from Telegram message types."""
+
+    def test_photo_picks_largest_resolution(self) -> None:
+        """Telegram sends multiple photo sizes; we pick the last (largest)."""
+        relay = TelegramRelay(bot_token="test")
+        update = {
+            "update_id": 1,
+            "message": {
+                "chat": {"id": 1},
+                "photo": [
+                    {"file_id": "small", "file_size": 1000, "width": 90, "height": 90},
+                    {"file_id": "medium", "file_size": 5000, "width": 320, "height": 240},
+                    {"file_id": "large", "file_size": 20000, "width": 1280, "height": 960},
+                ],
+            },
+        }
+        extraction = relay.extract_message(update)
+        assert len(extraction.file_infos) == 1
+        assert extraction.file_infos[0].file_id == "large"
+        assert extraction.file_infos[0].file_type == AttachmentType.IMAGE
+
+    def test_document_extraction(self) -> None:
+        relay = TelegramRelay(bot_token="test")
+        update = {
+            "update_id": 1,
+            "message": {
+                "chat": {"id": 1},
+                "document": {
+                    "file_id": "doc_abc",
+                    "file_name": "report.pdf",
+                    "mime_type": "application/pdf",
+                    "file_size": 50000,
+                },
+            },
+        }
+        extraction = relay.extract_message(update)
+        assert len(extraction.file_infos) == 1
+        info = extraction.file_infos[0]
+        assert info.file_id == "doc_abc"
+        assert info.file_type == AttachmentType.DOCUMENT
+        assert info.mime_type == "application/pdf"
+        assert info.file_name == "report.pdf"
+
+    def test_audio_extraction(self) -> None:
+        relay = TelegramRelay(bot_token="test")
+        update = {
+            "update_id": 1,
+            "message": {
+                "chat": {"id": 1},
+                "audio": {
+                    "file_id": "audio_xyz",
+                    "file_name": "song.mp3",
+                    "mime_type": "audio/mpeg",
+                    "file_size": 3000000,
+                },
+            },
+        }
+        extraction = relay.extract_message(update)
+        assert len(extraction.file_infos) == 1
+        assert extraction.file_infos[0].file_type == AttachmentType.AUDIO
+
+    def test_voice_extraction(self) -> None:
+        relay = TelegramRelay(bot_token="test")
+        update = {
+            "update_id": 1,
+            "message": {
+                "chat": {"id": 1},
+                "voice": {
+                    "file_id": "voice_123",
+                    "mime_type": "audio/ogg",
+                    "file_size": 50000,
+                },
+            },
+        }
+        extraction = relay.extract_message(update)
+        assert len(extraction.file_infos) == 1
+        info = extraction.file_infos[0]
+        assert info.file_type == AttachmentType.VOICE
+        assert info.file_name == "voice.ogg"
+
+    def test_video_extraction(self) -> None:
+        relay = TelegramRelay(bot_token="test")
+        update = {
+            "update_id": 1,
+            "message": {
+                "chat": {"id": 1},
+                "video": {
+                    "file_id": "vid_456",
+                    "mime_type": "video/mp4",
+                    "file_size": 5000000,
+                },
+            },
+        }
+        extraction = relay.extract_message(update)
+        assert len(extraction.file_infos) == 1
+        assert extraction.file_infos[0].file_type == AttachmentType.VIDEO
+
+    def test_sticker_extraction(self) -> None:
+        relay = TelegramRelay(bot_token="test")
+        update = {
+            "update_id": 1,
+            "message": {
+                "chat": {"id": 1},
+                "sticker": {
+                    "file_id": "sticker_789",
+                    "file_size": 10000,
+                },
+            },
+        }
+        extraction = relay.extract_message(update)
+        assert len(extraction.file_infos) == 1
+        info = extraction.file_infos[0]
+        assert info.file_type == AttachmentType.STICKER
+        assert info.mime_type == "image/webp"
+
+    def test_caption_used_as_text(self) -> None:
+        """Message captions (accompanying files) are treated as text."""
+        relay = TelegramRelay(bot_token="test")
+        update = {
+            "update_id": 1,
+            "message": {
+                "chat": {"id": 1},
+                "photo": [{"file_id": "p1", "file_size": 5000}],
+                "caption": "Here is the receipt",
+            },
+        }
+        extraction = relay.extract_message(update)
+        assert extraction.text == "Here is the receipt"
+        assert len(extraction.file_infos) == 1
+
+    def test_no_file_returns_empty_list(self) -> None:
+        relay = TelegramRelay(bot_token="test")
+        update = {
+            "update_id": 1,
+            "message": {"chat": {"id": 1}, "text": "plain text only"},
+        }
+        extraction = relay.extract_message(update)
+        assert extraction.file_infos == []
+
+
+class TestTelegramFileDownload:
+    """File download logic: getFile → download bytes, size enforcement."""
+
+    @pytest.mark.asyncio
+    async def test_successful_download(self) -> None:
+        """Two-step download: getFile → CDN fetch."""
+        relay = TelegramRelay(bot_token="bot123")
+        file_content = b"PDF content here"
+
+        get_file_response = MagicMock()
+        get_file_response.raise_for_status = MagicMock()
+        get_file_response.json.return_value = {
+            "ok": True,
+            "result": {"file_path": "documents/file_42.pdf", "file_size": 16},
+        }
+
+        download_response = MagicMock()
+        download_response.raise_for_status = MagicMock()
+        download_response.content = file_content
+
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = [get_file_response, download_response]
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("src.webhook.telegram.httpx.AsyncClient", return_value=mock_client):
+            result = await relay.download_file("file_id_42")
+
+        assert result == file_content
+        assert mock_client.get.call_count == 2
+        # First call: getFile endpoint
+        first_url = mock_client.get.call_args_list[0][0][0]
+        assert "getFile" in first_url
+        assert "file_id_42" in first_url
+        # Second call: CDN download
+        second_url = mock_client.get.call_args_list[1][0][0]
+        assert "documents/file_42.pdf" in second_url
+
+    @pytest.mark.asyncio
+    async def test_file_too_large_raises(self) -> None:
+        """Files exceeding 20MB are rejected before download."""
+        relay = TelegramRelay(bot_token="bot123")
+        large_size = 21 * 1024 * 1024  # 21MB
+
+        get_file_response = MagicMock()
+        get_file_response.raise_for_status = MagicMock()
+        get_file_response.json.return_value = {
+            "ok": True,
+            "result": {"file_path": "big/file.mp4", "file_size": large_size},
+        }
+
+        mock_client = AsyncMock()
+        mock_client.get.return_value = get_file_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("src.webhook.telegram.httpx.AsyncClient", return_value=mock_client):
+            with pytest.raises(ValueError, match="File too large"):
+                await relay.download_file("big_file_id")
+
+    @pytest.mark.asyncio
+    async def test_api_error_raises(self) -> None:
+        """Non-ok Telegram API response raises ValueError."""
+        relay = TelegramRelay(bot_token="bot123")
+
+        error_response = MagicMock()
+        error_response.raise_for_status = MagicMock()
+        error_response.json.return_value = {"ok": False, "description": "file not found"}
+
+        mock_client = AsyncMock()
+        mock_client.get.return_value = error_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("src.webhook.telegram.httpx.AsyncClient", return_value=mock_client):
+            with pytest.raises(ValueError, match="not-ok"):
+                await relay.download_file("bad_file_id")
+
+    @pytest.mark.asyncio
+    async def test_build_attachments_skips_failures(self) -> None:
+        """A download failure for one file does not prevent others from succeeding."""
+        relay = TelegramRelay(bot_token="bot123")
+
+        file_infos = [
+            TelegramFileInfo(
+                file_id="good_id",
+                file_type=AttachmentType.IMAGE,
+                mime_type="image/jpeg",
+                file_name="photo.jpg",
+                file_size=1000,
+            ),
+            TelegramFileInfo(
+                file_id="bad_id",
+                file_type=AttachmentType.DOCUMENT,
+                mime_type="application/pdf",
+                file_name="doc.pdf",
+                file_size=2000,
+            ),
+        ]
+
+        async def mock_download(file_id: str) -> bytes:
+            if file_id == "good_id":
+                return b"image bytes"
+            raise httpx.ConnectError("network failure")
+
+        import httpx
+
+        with patch.object(relay, "download_file", side_effect=mock_download):
+            attachments = await relay.build_attachments(file_infos)
+
+        # Only the successful download is returned
+        assert len(attachments) == 1
+        assert attachments[0].file_id == "good_id"
+        assert attachments[0].data == b"image bytes"
 
 
 class TestTelegramProtocolTranslation:

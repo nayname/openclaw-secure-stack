@@ -14,6 +14,8 @@ Pipeline stages:
 
 from __future__ import annotations
 
+import base64
+import io
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -22,17 +24,100 @@ import httpx
 
 from src.models import AuditEvent, AuditEventType, RiskLevel
 from src.sanitizer.sanitizer import PromptInjectionError
-from src.webhook.models import WebhookMessage, WebhookResponse
+from src.webhook.models import Attachment, AttachmentType, WebhookMessage, WebhookResponse
 
 if TYPE_CHECKING:
     from src.audit.logger import AuditLogger
     from src.governance.middleware import GovernanceMiddleware
     from src.quarantine.manager import QuarantineManager
     from src.sanitizer.sanitizer import PromptSanitizer
+    from src.webhook.history import ConversationHistory
 
 logger = logging.getLogger(__name__)
 
 _MAX_BODY_SIZE = 10 * 1024 * 1024  # 10MB (NFR-7)
+
+
+
+def _extract_pdf_text(data: bytes, file_name: str) -> str:
+    """Extract plain text from PDF bytes using pypdf.
+
+    Returns a header line plus the extracted text. On failure (encrypted,
+    corrupted, or scanned-image PDFs) returns a placeholder so the LLM still
+    knows a PDF was attached even if content is unavailable.
+    """
+    try:
+        import pypdf  # local import — optional dependency
+        reader = pypdf.PdfReader(io.BytesIO(data))
+        pages = [page.extract_text() or "" for page in reader.pages]
+        text = "\n\n".join(p.strip() for p in pages if p.strip())
+        if text:
+            return f"[PDF: {file_name}]\n\n{text}"
+        # Scanned/image-only PDF — no extractable text
+        return f"[PDF: {file_name}] (no extractable text — may be a scanned image)"
+    except Exception:
+        logger.warning("Failed to extract text from PDF %s", file_name, exc_info=True)
+        return f"[PDF: {file_name}] (could not parse)"
+
+
+def _build_content_parts(
+    text: str,
+    attachments: list[Attachment],
+) -> str | list[dict[str, Any]]:
+    """Build the message content for the upstream LLM request.
+
+    - No attachments → returns plain str (backward compatible, unchanged behavior).
+    - With attachments → returns OpenAI multimodal content array.
+
+    Content block format by attachment type:
+    - IMAGE/STICKER: image_url block with data URI
+    - AUDIO/VOICE: input_audio block with base64 + format
+    - PDF: text block with pypdf-extracted plain text
+    - VIDEO/other: text placeholder (unsupported binary format)
+    """
+    if not attachments:
+        return text
+
+    parts: list[dict[str, Any]] = []
+
+    if text:
+        parts.append({"type": "text", "text": text})
+
+    for attachment in attachments:
+        encoded = base64.b64encode(attachment.data).decode()
+
+        if attachment.type in (AttachmentType.IMAGE, AttachmentType.STICKER):
+            parts.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{attachment.mime_type};base64,{encoded}",
+                },
+            })
+        elif attachment.type in (AttachmentType.AUDIO, AttachmentType.VOICE):
+            # Derive format from mime_type (e.g. "audio/ogg" → "ogg")
+            fmt = attachment.mime_type.split("/")[-1].split(";")[0]
+            parts.append({
+                "type": "input_audio",
+                "input_audio": {
+                    "data": encoded,
+                    "format": fmt,
+                },
+            })
+        elif attachment.mime_type == "application/pdf":
+            # Extract text from the PDF and send as a plain text block.
+            # Sending base64 binary to OpenClaw exceeds its gateway body limit
+            # (~1MB) and results in immediate TCP-reset → 502. Extracted text
+            # is typically 10-100x smaller and works with any LLM backend.
+            pdf_text = _extract_pdf_text(attachment.data, attachment.file_name)
+            parts.append({"type": "text", "text": pdf_text})
+        else:
+            # VIDEO and other binary formats unsupported → text placeholder
+            parts.append({
+                "type": "text",
+                "text": f"[{attachment.type.value}: {attachment.file_name}]",
+            })
+
+    return parts
 
 
 class WebhookRelayPipeline:
@@ -51,6 +136,7 @@ class WebhookRelayPipeline:
         governance: GovernanceMiddleware | None = None,
         response_scanner: PromptSanitizer | None = None,
         audit_logger: AuditLogger | None = None,
+        conversation_history: ConversationHistory | None = None,
     ) -> None:
         self._sanitizer = sanitizer
         self._quarantine = quarantine_manager
@@ -59,18 +145,25 @@ class WebhookRelayPipeline:
         self._upstream_token = upstream_token
         self._response_scanner = response_scanner
         self._audit = audit_logger
+        self._history = conversation_history
 
     async def relay(self, message: WebhookMessage) -> WebhookResponse:
         """Run the full relay pipeline for a webhook message."""
 
         # Stage 1: Body size check (NFR-7)
-        if len(message.text.encode()) > _MAX_BODY_SIZE:
+        # Attachment data is base64-encoded before forwarding, expanding it by ~33%.
+        # Use the encoded size (ceil(n/3)*4) so the limit reflects what is actually sent.
+        text_bytes = len(message.text.encode())
+        attachment_bytes = sum((len(a.data) + 2) // 3 * 4 for a in message.attachments)
+        if text_bytes + attachment_bytes > _MAX_BODY_SIZE:
             return WebhookResponse(
                 text="Request body too large",
                 status_code=413,
             )
 
-        # Stage 2: Sanitize (prompt injection detection)
+        # Stage 2: Sanitize (prompt injection detection) — text only
+        # Binary attachment content intentionally bypasses the text sanitizer;
+        # the response scanner (Stage 5) still catches indirect injection in output.
         try:
             result = self._sanitizer.sanitize(message.text)
             clean_text = result.clean
@@ -80,14 +173,27 @@ class WebhookRelayPipeline:
                 status_code=400,
             )
 
-        # Stage 2.5: Governance evaluation
+        # Stage 2.5: Governance evaluation (text + attachment metadata, not binary)
         if self._governance:
             from src.governance.models import GovernanceDecision
 
+            attachment_meta = [
+                {
+                    "type": a.type.value,
+                    "mime_type": a.mime_type,
+                    "file_name": a.file_name,
+                    "file_size": a.file_size,
+                }
+                for a in message.attachments
+            ]
             gov_body: dict[str, Any] = {
                 "model": "default",
                 "messages": [{"role": "user", "content": clean_text}],
-                "metadata": {"source": message.source, **message.metadata},
+                "metadata": {
+                    "source": message.source,
+                    "attachments": attachment_meta,
+                    **message.metadata,
+                },
             }
             gov_result = self._governance.evaluate(
                 gov_body, None, message.sender_id,
@@ -124,13 +230,51 @@ class WebhookRelayPipeline:
                     status_code=403,
                 )
 
-        # Stage 4: Forward to upstream
+        # Stage 4: Build messages with conversation history and forward to upstream
+        # Session key is namespaced by source to prevent cross-channel ID collisions
+        # (e.g. Telegram chat_id "123" vs WhatsApp phone "123").
+        session_id = f"{message.source}:{message.sender_id}"
+
+        # History stores lightweight text summaries (not base64 blobs) for
+        # each attachment to prevent context growth across multi-turn sessions.
+        # Filenames come from the Telegram payload and are user-controlled, so
+        # each one must be sanitized before being appended to history_text.
+        # On injection detection the filename is replaced with its safe type label.
+        history_text = clean_text
+        if message.attachments:
+            safe_summaries: list[str] = []
+            for a in message.attachments:
+                try:
+                    safe_name = self._sanitizer.sanitize(a.file_name).clean
+                except PromptInjectionError:
+                    safe_name = a.type.value  # fall back to enum label only
+                safe_summaries.append(f"[{a.type.value}: {safe_name}]")
+            summaries = " ".join(safe_summaries)
+            history_text = f"{clean_text} {summaries}".strip()
+
+        if self._history:
+            self._history.append_user(session_id, history_text)
+            history_messages: list[dict[str, Any]] = self._history.get(session_id)
+        else:
+            history_messages = [{"role": "user", "content": history_text}]
+
+        # For the current (last) message, swap in the full multimodal content.
+        # All prior history entries remain as text summaries.
+        current_content = _build_content_parts(clean_text, message.attachments)
+        messages: list[dict[str, Any]] = history_messages[:-1] + [
+            {"role": "user", "content": current_content},
+        ]
+
         request_body = {
             "model": "default",
-            "messages": [{"role": "user", "content": clean_text}],
+            "messages": messages,
             "metadata": {"source": message.source, **message.metadata},
         }
         upstream_response = await self._forward_to_upstream(request_body)
+
+        # Update history with assistant reply (only on success)
+        if self._history and upstream_response.status_code == 200:
+            self._history.append_assistant(session_id, upstream_response.text)
 
         # Stage 5: Response scan (indirect injection)
         if self._response_scanner and upstream_response.status_code == 200:
@@ -158,6 +302,7 @@ class WebhookRelayPipeline:
                     "source": message.source,
                     "sender_id": message.sender_id,
                     "upstream_status": upstream_response.status_code,
+                    "attachment_count": len(message.attachments),
                 },
             ))
 
@@ -190,7 +335,7 @@ class WebhookRelayPipeline:
                     text = resp.text
 
                 return WebhookResponse(text=text, status_code=resp.status_code)
-        except (httpx.ConnectError, httpx.TimeoutException):
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError):
             return WebhookResponse(
                 text="Upstream unavailable",
                 status_code=502,

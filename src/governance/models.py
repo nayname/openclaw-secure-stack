@@ -11,6 +11,7 @@ This module defines all data models for the governance layer including:
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -318,86 +319,34 @@ class ExecutionContext(BaseModel):
     preferences: dict[str, Any] = Field(default_factory=dict)
 
 
-class EnhancedExecutionPlan(BaseModel):
-    """Execution plan with conditionals, recovery, and operational knowledge.
-
-    Extends the base ExecutionPlan with:
-    - Conditional branches
-    - Recovery paths
-    - User-provided constraints
-    - Execution mode preferences
-    """
+class ConditionalBranch(BaseModel):
+    """Conditional execution branch."""
 
     model_config = ConfigDict(frozen=True)
 
-    # Base plan
-    base_plan: ExecutionPlan
+    condition: str  # Expression to evaluate
+    if_true: list[int] = Field(default_factory=list)  # Step sequences to run if true
+    if_false: list[int] = Field(default_factory=list)  # Step sequences to run if false
 
-    # Enhanced execution semantics
-    # conditionals: list[ConditionalBranch] = Field(default_factory=list)
-    # recovery_paths: list[RecoveryPath] = Field(default_factory=list)
 
-    # User operational knowledge
-    description: str | None = None  # Human-readable description
-    constraints: list[str] = Field(default_factory=list)  # Must-have constraints
-    preferences: list[str] = Field(default_factory=list)  # Nice-to-have preferences
+class RecoveryPath(BaseModel):
+    """Recovery path for a failed step."""
 
-    # Execution configuration
-    default_mode: ExecutionMode = ExecutionMode.GOVERNANCE_DRIVEN
-    allow_mode_override: bool = False
-    require_preview: bool = True  # User must preview before execution
+    model_config = ConfigDict(frozen=True)
 
-    @property
-    def plan_id(self) -> str:
-        return self.base_plan.plan_id
+    trigger_step: int  # Which step this recovers from
+    trigger_errors: list[str] = Field(default_factory=list)  # Error patterns that trigger this
+    strategy: RecoveryStrategy
 
-    @property
-    def actions(self) -> list[PlannedAction]:
-        return self.base_plan.actions
+    # For RETRY strategy
+    max_retries: int = Field(default=3, ge=1)
+    backoff_ms: int = Field(default=1000, ge=0)
 
-    def validate_action_against_profile(self, action: PlannedAction) -> list[str]:
-        """Validate a planned action against the operational profile.
+    # For ALTERNATIVE strategy
+    alternative_steps: list[PlannedAction] = Field(default_factory=list)
 
-        Returns list of violation messages (empty if valid).
-        """
-        violations = []
-
-        if not self.operational_profile:
-            return violations
-
-        profile = self.operational_profile
-
-        # Check path constraints
-        for resource in action.resources:
-            if resource.type == "file":
-                if not profile.is_path_allowed(resource.path):
-                    violations.append(
-                        f"Path '{resource.path}' is not allowed by operational profile"
-                    )
-
-        # Check command constraints if this is a system command
-        if action.category == IntentCategory.SYSTEM_COMMAND:
-            # Extract command from tool call arguments
-            cmd = action.tool_call.arguments.get("command", "")
-            if isinstance(cmd, str) and profile.is_command_forbidden(cmd):
-                violations.append(
-                    f"Command is forbidden by operational profile"
-                )
-
-        # Check network constraints
-        for resource in action.resources:
-            if resource.type == "url":
-                # Extract domain from URL
-                import re
-                match = re.match(r"https?://([^/]+)", resource.path)
-                if match:
-                    domain = match.group(1)
-                    if not profile.is_domain_allowed(domain):
-                        violations.append(
-                            f"Domain '{domain}' is not allowed by operational profile"
-                        )
-
-        return violations
+    # For REPLAN strategy
+    replan_constraints: list[str] = Field(default_factory=list)
 
 
 class ExecutionState(BaseModel):
@@ -439,347 +388,86 @@ class ExecutionState(BaseModel):
         return (self.completed_steps / self.total_steps) * 100
 
 
-class RecoveryPath(BaseModel):
-    """Recovery path for a failed step."""
+class EnhancedExecutionPlan(BaseModel):
+    """Execution plan enhanced with LLM-generated operational knowledge.
 
-    model_config = ConfigDict(frozen=True)
-
-    trigger_step: int  # Which step this recovers from
-    trigger_errors: list[str] = Field(default_factory=list)  # Error patterns that trigger this
-    strategy: RecoveryStrategy
-
-    # For RETRY strategy
-    max_retries: int = Field(default=3, ge=1)
-    backoff_ms: int = Field(default=1000, ge=0)
-
-    # For ALTERNATIVE strategy
-    alternative_steps: list[PlannedAction] = Field(default_factory=list)
-
-    # For REPLAN strategy
-    replan_constraints: list[str] = Field(default_factory=list)
-
-
-class DatabaseConfig(BaseModel):
-    """Database-specific operational constraints."""
-
-    model_config = ConfigDict(frozen=True)
-
-    # Protected tables - never DELETE/DROP/TRUNCATE
-    protected_tables: list[str] = Field(
-        default_factory=list,
-        description="Tables that must never be modified destructively (e.g., users, orders)"
-    )
-
-    # Safe tables - can be modified without confirmation
-    safe_tables: list[str] = Field(
-        default_factory=list,
-        description="Tables safe for modifications (e.g., sessions, tmp_*, cache_*)"
-    )
-
-    # Required clauses - enforce safety patterns
-    require_where_clause: bool = Field(
-        default=True,
-        description="DELETE/UPDATE must have WHERE clause"
-    )
-
-    max_affected_rows: int | None = Field(
-        default=1000,
-        description="Max rows affected before requiring confirmation"
-    )
-
-    # Environment detection
-    production_indicators: list[str] = Field(
-        default_factory=lambda: ["prod", "production", "live"],
-        description="Patterns that indicate production database"
-    )
-
-
-class NetworkConfig(BaseModel):
-    """Network/API operational constraints."""
-
-    model_config = ConfigDict(frozen=True)
-
-    # Allowed domains - whitelist for outbound requests
-    allowed_domains: list[str] = Field(
-        default_factory=list,
-        description="Domains allowed for outbound requests"
-    )
-
-    # Blocked domains - never connect
-    blocked_domains: list[str] = Field(
-        default_factory=lambda: [
-            "*.pastebin.com",
-            "*.requestbin.com",
-            "*.webhook.site",
-        ],
-        description="Domains to block (potential exfiltration)"
-    )
-
-    # Internal-only patterns
-    internal_patterns: list[str] = Field(
-        default_factory=lambda: [
-            "*.internal.*",
-            "*.local",
-            "localhost",
-            "127.0.0.1",
-        ],
-        description="Patterns indicating internal/safe endpoints"
-    )
-
-
-class OperationalProfile(BaseModel):
-    """User-specific operational knowledge that guides and constrains execution.
-
-    This is the core differentiator: the plan encodes user-specific operational
-    knowledge - paths, procedures, constraints, configs - and serves as an
-    external guiding source of truth for execution, not just non-binding context.
-
-    The profile is:
-    - Generated before execution
-    - Set up by the user
-    - Enforced at runtime
+    Wraps the base ExecutionPlan and adds:
+    - Human-readable description
+    - Constraints and preferences
+    - Recovery paths
+    - Conditional branches
+    - Execution mode configuration
     """
 
-    model_config = ConfigDict(frozen=True)
+    # NOTE: frozen=False breaks immutability contract used by other models.
+    # This is intentional but temporary - ExecutionState is embedded in the plan
+    # for simplicity during initial development. Long-term fix: extract state
+    # to a separate mutable container held by the execution engine, then freeze
+    # this model. Deferred until plan structure stabilizes.
+    model_config = ConfigDict(frozen=False)
 
-    # Profile metadata
-    profile_id: str = Field(description="Unique profile identifier")
-    name: str = Field(description="Human-readable profile name")
-    description: str | None = Field(
-        default=None,
-        description="What this profile is for"
-    )
-    version: str = Field(default="1.0.0", description="Profile version")
+    # Base plan (immutable spec)
+    base_plan: ExecutionPlan
 
-    # Environment context
-    environment: str = Field(
-        default="development",
-        description="Environment type: development, staging, production"
-    )
-    project_root: str | None = Field(
-        default=None,
-        description="Root directory for this project"
-    )
+    # LLM-generated enhancements
+    description: str | None = None
+    constraints: list[str] = Field(default_factory=list)
+    preferences: list[str] = Field(default_factory=list)
+    recovery_paths: list[RecoveryPath] = Field(default_factory=list)
+    conditionals: list[ConditionalBranch] = Field(default_factory=list)
+    execution_mode: ExecutionMode = ExecutionMode.GOVERNANCE_DRIVEN
 
-    # Operational knowledge components
-    paths: PathConfig = Field(
-        default_factory=PathConfig,
-        description="Path-related constraints and allowances"
-    )
-    database: DatabaseConfig = Field(
-        default_factory=DatabaseConfig,
-        description="Database-related constraints"
-    )
-    services: ServiceConfig = Field(
-        default_factory=ServiceConfig,
-        description="Service/infrastructure constraints"
-    )
-    network: NetworkConfig = Field(
-        default_factory=NetworkConfig,
-        description="Network/API constraints"
-    )
+    # Schema-derived fields
+    operations: list[dict[str, Any]] = Field(default_factory=list)
+    global_constraints: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
-    # Standard operating procedures
-    procedures: list[Procedure] = Field(
-        default_factory=list,
-        description="Defined procedures for common tasks"
-    )
+    # Runtime state (initialized when execution starts)
+    state: ExecutionState | None = None
 
-    # Global constraints (always enforced)
-    global_constraints: list[str] = Field(
-        default_factory=list,
-        description="Constraints that always apply regardless of task"
-    )
+    # Convenience accessors
+    @property
+    def plan_id(self) -> str:
+        return self.base_plan.plan_id
 
-    # Timing constraints
-    maintenance_windows: list[str] = Field(
-        default_factory=list,
-        description="Time windows when destructive operations are allowed (cron format)"
-    )
-    blocked_hours: list[str] = Field(
-        default_factory=list,
-        description="Hours when high-risk operations are blocked (e.g., '09:00-18:00')"
-    )
+    @property
+    def session_id(self) -> str | None:
+        return self.base_plan.session_id
 
-    # Notification settings
-    notify_on_high_risk: bool = Field(
-        default=True,
-        description="Send notification for high-risk operations"
-    )
-    notify_channels: list[str] = Field(
-        default_factory=list,
-        description="Channels for notifications (e.g., 'slack:#ops', 'email:team@')"
-    )
+    @property
+    def actions(self) -> list[PlannedAction]:
+        return self.base_plan.actions
 
-    def get_procedure(self, name: str) -> Procedure | None:
-        """Get a procedure by name."""
-        for proc in self.procedures:
-            if proc.name == name:
-                return proc
-        return None
+    @property
+    def risk_assessment(self) -> RiskAssessment:
+        return self.base_plan.risk_assessment
 
-    def is_path_allowed(self, path: str) -> bool:
-        """Check if a path is within working directories and not protected."""
-        import fnmatch
+    def initialize_state(self, session_id: str | None, user_id: str, token: str) -> None:
+        """Initialize execution state. Call before execute().
 
-        # Check if protected
-        for protected in self.paths.protected_paths:
-            if fnmatch.fnmatch(path, protected) or path.startswith(protected):
-                return False
+        Args:
+            session_id: Session ID (required).
+            user_id: User ID.
+            token: Plan token.
 
-        # Check if in working dirs (if defined)
-        if self.paths.working_dirs:
-            for working in self.paths.working_dirs:
-                if path.startswith(working):
-                    return True
-            return False
+        Raises:
+            ValueError: If session_id is None.
+        """
+        if session_id is None:
+            raise ValueError("session_id is required for execution state initialization")
 
-        return True
-
-    def is_table_protected(self, table: str) -> bool:
-        """Check if a database table is protected."""
-        import fnmatch
-
-        for protected in self.database.protected_tables:
-            if fnmatch.fnmatch(table, protected):
-                return True
-        return False
-
-    def is_command_forbidden(self, command: str) -> bool:
-        """Check if a command is forbidden."""
-        import fnmatch
-
-        command_lower = command.lower()
-        for forbidden in self.services.forbidden_commands:
-            if fnmatch.fnmatch(command_lower, forbidden.lower()):
-                return True
-            if forbidden.lower() in command_lower:
-                return True
-        return False
-
-    def is_domain_allowed(self, domain: str) -> bool:
-        """Check if a domain is allowed for outbound requests."""
-        import fnmatch
-
-        # Check blocked first
-        for blocked in self.network.blocked_domains:
-            if fnmatch.fnmatch(domain, blocked):
-                return False
-
-        # If whitelist defined, check it
-        if self.network.allowed_domains:
-            for allowed in self.network.allowed_domains:
-                if fnmatch.fnmatch(domain, allowed):
-                    return True
-            return False
-
-        return True
-
-
-class PathConfig(BaseModel):
-    """Path configuration for operational context."""
-
-    model_config = ConfigDict(frozen=True)
-
-    # Working directories - where operations are allowed
-    working_dirs: list[str] = Field(
-        default_factory=list,
-        description="Directories where operations are permitted (e.g., ~/code/project)"
-    )
-
-    # Protected paths - never touch these
-    protected_paths: list[str] = Field(
-        default_factory=list,
-        description="Paths that must never be modified (e.g., ~/.ssh, /etc)"
-    )
-
-    # Sensitive patterns - require extra confirmation
-    sensitive_patterns: list[str] = Field(
-        default_factory=list,
-        description="Glob patterns for sensitive files (e.g., *.env, *secret*)"
-    )
-
-    # Temp/scratch directories - safe for temporary operations
-    scratch_dirs: list[str] = Field(
-        default_factory=list,
-        description="Directories safe for temporary files"
-    )
-
-
-class Procedure(BaseModel):
-    """A standard operating procedure for a specific task type."""
-
-    model_config = ConfigDict(frozen=True)
-
-    name: str = Field(description="Procedure name (e.g., 'credential_rotation')")
-    description: str = Field(description="What this procedure does")
-
-    # Required steps in order
-    required_steps: list[str] = Field(
-        default_factory=list,
-        description="Steps that must be executed in order"
-    )
-
-    # Pre-conditions that must be true
-    preconditions: list[str] = Field(
-        default_factory=list,
-        description="Conditions to verify before starting"
-    )
-
-    # Post-conditions to verify
-    postconditions: list[str] = Field(
-        default_factory=list,
-        description="Conditions to verify after completion"
-    )
-
-    # Rollback steps if something fails
-    rollback_steps: list[str] = Field(
-        default_factory=list,
-        description="Steps to execute on failure"
-    )
-
-
-class ServiceConfig(BaseModel):
-    """Service/infrastructure operational constraints."""
-
-    model_config = ConfigDict(frozen=True)
-
-    # Protected services - require confirmation to restart/modify
-    protected_services: list[str] = Field(
-        default_factory=list,
-        description="Services that require confirmation (e.g., postgres, nginx)"
-    )
-
-    # Safe services - can be restarted freely
-    safe_services: list[str] = Field(
-        default_factory=list,
-        description="Services safe to restart (e.g., redis, memcached)"
-    )
-
-    # Forbidden commands - never execute
-    forbidden_commands: list[str] = Field(
-        default_factory=lambda: [
-            "rm -rf /",
-            "rm -rf ~",
-            "rm -rf /*",
-            ":(){ :|:& };:",  # Fork bomb
-            "> /dev/sda",
-            "mkfs.",
-            "dd if=",
-        ],
-        description="Commands that must never be executed"
-    )
-
-    # Commands requiring confirmation
-    confirm_commands: list[str] = Field(
-        default_factory=lambda: [
-            "reboot",
-            "shutdown",
-            "systemctl restart",
-            "service * restart",
-            "kill -9",
-            "pkill",
-        ],
-        description="Commands requiring explicit confirmation"
-    )
-
+        context = ExecutionContext(
+            plan_id=self.plan_id,
+            session_id=session_id,
+            user_id=user_id,
+            token=token,
+        )
+        self.state = ExecutionState(
+            plan_id=self.plan_id,
+            session_id=session_id,
+            context=context,
+            current_sequence=0,
+            status=StepStatus.PENDING,
+            total_steps=len(self.actions),
+            started_at=datetime.now(UTC).isoformat(),
+        )

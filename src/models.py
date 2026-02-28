@@ -39,6 +39,7 @@ class AuditEventType(str, Enum):
     WEBHOOK_REPLAY_REJECTED = "webhook_replay_rejected"
     WEBHOOK_RATE_LIMITED = "webhook_rate_limited"
     WEBHOOK_SIGNATURE_FAILED = "webhook_signature_failed"
+    WEBHOOK_FILE_DOWNLOAD = "webhook_file_download"
     # Plugin enforcement events
     PLUGIN_GOVERNANCE_BLOCK = "plugin_governance_block"
     PLUGIN_QUARANTINE_BLOCK = "plugin_quarantine_block"

@@ -303,6 +303,47 @@ class TestTelegramEndpoints:
                 )
                 assert resp.status_code == 429
 
+    @pytest.mark.asyncio
+    async def test_file_only_message_with_all_downloads_failed_notifies_user(
+        self, app_with_telegram: Any,
+    ) -> None:
+        """P2: When all file downloads fail and no text is present, the user must be
+        notified via Telegram rather than silently receiving HTTP 200 with no reply."""
+        headers = _make_telegram_headers("123:ABC")
+        # Update with a document attachment and no text
+        update = {
+            "update_id": 777,
+            "message": {
+                "message_id": 1,
+                "chat": {"id": 42},
+                "document": {
+                    "file_id": "bad_file",
+                    "file_name": "report.pdf",
+                    "mime_type": "application/pdf",
+                    "file_size": 1000,
+                },
+            },
+        }
+        transport = ASGITransport(app=app_with_telegram)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # build_attachments fails for all files → returns []
+            # send_response is mocked to capture the error message
+            with patch("src.webhook.telegram.TelegramRelay.build_attachments", new_callable=AsyncMock) as mock_build, \
+                 patch("src.webhook.telegram.TelegramRelay.send_response", new_callable=AsyncMock) as mock_send:
+                mock_build.return_value = []
+
+                resp = await client.post(
+                    "/webhook/telegram",
+                    json=update,
+                    headers=headers,
+                )
+
+        assert resp.status_code == 200
+        # User must have received an error message, not silence
+        mock_send.assert_called_once()
+        sent_text: str = mock_send.call_args[1]["text"]
+        assert "couldn't download" in sent_text.lower() or "try again" in sent_text.lower()
+
 
 class TestWebhookBodySizeLimits:
     """Body-size protection before JSON parse (defense-in-depth)."""
