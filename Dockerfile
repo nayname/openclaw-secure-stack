@@ -1,10 +1,15 @@
-# Stage 1: Build dependencies with uv
-# Pin base image by digest for reproducible builds. Update digest periodically.
-# To find latest: podman pull python:3.12-slim && podman inspect --format='{{index .RepoDigests 0}}' python:3.12-slim
-FROM python:3.12-slim@sha256:4b70b3e968be0f795f45cc2c8c159cb8034d256917573b0e8eacbc23596cd71a AS builder
-
+# Global ARG for uv image (must be before first FROM for use in FROM stages)
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.5.0
-COPY --from=${UV_IMAGE} /uv /usr/local/bin/uv
+
+# Named uv stage so COPY --from can reference a stage name (variable expansion not supported in --from)
+FROM ${UV_IMAGE} AS uv
+
+# Stage 1: Build dependencies with uv
+# Base image is not pinned by digest to support multi-arch builds (amd64/arm64).
+# For single-arch production: python:3.12-slim@sha256:<digest from `docker buildx imagetools inspect python:3.12-slim`>
+FROM python:3.12-slim AS builder
+
+COPY --from=uv /uv /usr/local/bin/uv
 
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
@@ -16,7 +21,7 @@ RUN uv sync --frozen --no-dev
 
 # Stage 2: Slim runtime — same Python 3.12 as builder to avoid native extension ABI mismatch.
 # distroless/python3-debian12 only ships Python 3.11, which breaks pydantic_core's compiled .so files.
-# To find latest digest: podman pull python:3.12-slim && podman inspect --format='{{index .RepoDigests 0}}' python:3.12-slim
+# Not digest-pinned for the same multi-arch reason as Stage 1.
 FROM python:3.12-slim AS runtime
 
 # Hardening: create non-root user matching distroless UID convention

@@ -188,6 +188,87 @@ uv run python -m src.scanner.cli quarantine override skill-name \
     --ack "I accept the risk" --user admin
 ```
 
+## Production Deployment (Hybrid Architecture)
+
+For production deployments on Ubuntu 24.04 LTS servers, use the **hybrid architecture**:
+- **OpenClaw Gateway**: Native (systemd) for better OAuth support and plugin performance
+- **Security Proxy**: Docker container for isolation and easy updates
+- **Optional Cloudflare Tunnel**: Public HTTPS access without port forwarding
+
+### Why Hybrid?
+
+- ✅ **Best of both worlds:** Native OpenClaw for OAuth/plugins + isolated Docker proxy
+- ✅ **Stable releases:** Uses Git tags instead of bleeding-edge main branch
+- ✅ **One-click install:** Automated setup including optional Cloudflare Tunnel
+- ✅ **Production-ready:** Systemd services, health checks, audit logging
+
+### Quick Start (Hybrid)
+
+```bash
+# 1. Sync repository to server
+rsync -avz --exclude='.git' --exclude='.venv' --exclude='node_modules' \
+  openclaw-secure-stack/ user@server:/tmp/openclaw-secure-stack/
+
+# 2. Run one-click installer (includes optional Cloudflare Tunnel setup)
+ssh -t user@server \
+  "cd /tmp/openclaw-secure-stack && sudo bash deploy/hybrid/install-hybrid.sh"
+```
+
+The hybrid installer will:
+1. **Ask if you have a domain** (sets up Cloudflare Tunnel if yes)
+2. Install Docker, Node.js 22, pnpm
+3. Clone OpenClaw (latest stable release)
+4. Run OpenAI OAuth authentication (interactive browser login)
+5. Build prompt-guard plugin
+6. Deploy Docker proxy container
+7. Start services and verify health
+
+### Architecture (Hybrid)
+
+```
+Internet → Cloudflare Edge (optional) → Proxy (Docker, :8080) → OpenClaw (systemd, :3000) → LLM APIs
+```
+
+**Key components:**
+- OpenClaw runs as systemd service (native for best compatibility)
+- Proxy runs in Docker container (isolated security layer)
+- Both use localhost communication (no network exposure)
+- Cloudflare Tunnel optional (public access without port forwarding)
+
+### Documentation
+
+- **[Cloudflare Tunnel Setup Guide](docs/openclaw-cloudflare-tunnel-setup.md)** — comprehensive installation guide
+- **[Quick Reference](docs/openclaw-quick-reference.md)** — command cheatsheet for operations
+- **[Hybrid Deployment README](deploy/hybrid/README.md)** — detailed installer documentation
+
+### Post-Installation (Hybrid)
+
+**Check status:**
+```bash
+sudo systemctl status openclaw        # Native OpenClaw
+docker ps                              # Docker proxy
+sudo systemctl status cloudflared      # Tunnel (if enabled)
+```
+
+**Health checks:**
+```bash
+curl http://localhost:3000/health      # OpenClaw
+curl http://localhost:8080/health      # Proxy
+curl https://yourdomain.com/health     # Public (if tunnel enabled)
+```
+
+**View logs:**
+```bash
+journalctl -u openclaw -f                                                     # OpenClaw
+docker logs -f openclaw-proxy                                                 # Proxy
+journalctl -u cloudflared -f                                                  # Tunnel
+```
+
+**Get API token:**
+```bash
+sudo grep OPENCLAW_TOKEN /opt/openclaw-secure-stack/.env | cut -d= -f2
+```
+
 ## Configuration
 
 ### Config Files
@@ -399,11 +480,69 @@ All Dockerfiles pin base images by SHA-256 digest. To update:
 3. Update the `@sha256:...` in the Dockerfile
 4. Rebuild and test
 
+## Cloudflare Tunnel Deployment
+
+For **private server deployment with public HTTPS access** without port forwarding, you can use Cloudflare Tunnel:
+
+### Benefits
+- **No port forwarding needed** — server stays on private network
+- **Automatic HTTPS** — Let's Encrypt certificates managed by Cloudflare
+- **DDoS protection** — traffic routes through Cloudflare's edge network
+- **Hidden server IP** — only outbound connections to Cloudflare
+- **Zero trust security** — WAF, rate limiting, and access control at the edge
+
+### Quick Start (Cloudflare Tunnel)
+
+```bash
+# 1. Add domain to Cloudflare and update nameservers
+# 2. Install cloudflared on your server
+curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /tmp/cloudflared
+sudo install -m 755 /tmp/cloudflared /usr/local/bin/cloudflared
+
+# 3. Authenticate with Cloudflare
+cloudflared tunnel login
+
+# 4. Create tunnel
+cloudflared tunnel create openclaw
+
+# 5. Configure tunnel (see detailed guide)
+# 6. Route DNS
+cloudflared tunnel route dns openclaw yourdomain.com
+
+# 7. Install as service
+sudo cloudflared service install
+sudo systemctl enable --now cloudflared
+
+# 8. Deploy OpenClaw (hybrid installer auto-configures tunnel)
+cd /tmp/openclaw-secure-stack
+sudo bash deploy/hybrid/install-hybrid.sh
+```
+
+**Note:** The hybrid installer includes integrated Cloudflare Tunnel setup! You can also run steps 2-7 manually if you prefer, then use the installer which will detect existing tunnel configuration.
+
+### Architecture (Cloudflare Tunnel + Hybrid)
+
+```
+User → Cloudflare Edge (HTTPS) → Tunnel (outbound-only) → Proxy (Docker) → OpenClaw (systemd) → LLM APIs
+```
+
+### Documentation
+
+- **[Cloudflare Tunnel Setup Guide](docs/openclaw-cloudflare-tunnel-setup.md)** — comprehensive installation guide with manual + automated options
+- **[Quick Reference](docs/openclaw-quick-reference.md)** — command cheatsheet for operations
+- **[Hybrid Deployment README](deploy/hybrid/README.md)** — detailed installer documentation
+
+**Recommended:** Use the hybrid installer with Cloudflare Tunnel option for best security and ease of deployment.
+
+---
+
 ## Documentation
 
 - [User Quick Start](docs/quickstart-user.md) — operations guide for deploying and running the stack
 - [Developer Quick Start](docs/quickstart-dev.md) — contributor guide for local development and extending the codebase
 - [Telegram Webhook Setup](docs/telegram-webhook-setup.md) — connect your Telegram bot with Cloudflare Tunnel
+- [Cloudflare Tunnel Setup](docs/openclaw-cloudflare-tunnel-setup.md) — deploy with private server and public HTTPS
+- [Quick Reference](docs/openclaw-quick-reference.md) — command cheatsheet for operations
 
 ## License
 
