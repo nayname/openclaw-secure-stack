@@ -93,19 +93,18 @@ class GovernanceMiddleware:
         if self._enabled:
             self._classifier = IntentClassifier(patterns_path)
 
-            # Resolve schema path - prefer explicit absolute path from settings,
-            # fall back to same directory as patterns_path (typically config/)
+            # Resolve schema path - prefer explicit path from settings,
+            # fall back to canonical location derived from patterns_path
             enhancement_settings = settings.get("enhancement", {})
             schema_path = enhancement_settings.get("schema_path")
 
+            config_dir = Path(patterns_path).parent
+
             if schema_path is None:
-                # Default: look for execution-plan.json in same dir as patterns
-                config_dir = Path(patterns_path).parent
-                schema_path = str(config_dir / "execution-plan.json")
+                schema_path = str(config_dir.parent / "schemas" / "execution-plan" / "1.0.0" / "schema.json")
             elif not Path(schema_path).is_absolute():
-                # Relative path: resolve from same dir as patterns
-                config_dir = Path(patterns_path).parent
-                schema_path = str(config_dir / schema_path)
+                # Relative path: resolve from project root
+                schema_path = str(config_dir.parent / schema_path)
             # else: absolute path, use as-is
 
             self._planner = PlanGenerator(patterns_path, schema_path=schema_path)
@@ -133,7 +132,6 @@ class GovernanceMiddleware:
 
             # Enhancement settings
             self._enhancement_enabled = enhancement_settings.get("enabled", False)
-            self._enhancement_context = enhancement_settings.get("default_context", {})
 
     def _get_llm(self) -> LLMClient:
         """Lazy-load LLM client on first use."""
@@ -141,7 +139,24 @@ class GovernanceMiddleware:
             self._llm = LLMClient()
         return self._llm
 
-    def evaluate(
+    # TODO: _extract_user_message() simplification — currently supports common
+    # content block structures; may be extended once broader message formats are exercised.
+    def _extract_user_message(self, request_body: dict[str, Any]) -> str | None:
+        """Extract the last user message from request body."""
+        messages = request_body.get("messages", [])
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                content = msg.get("content")
+                if isinstance(content, str):
+                    return content
+                # Handle content blocks
+                if isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            return block.get("text")
+        return None
+
+    async def evaluate(
         self,
         request_body: dict[str, Any],
         session_id: str | None,
@@ -223,18 +238,8 @@ class GovernanceMiddleware:
         plan_id, token = self._store.store(plan, ttl_seconds=self._token_ttl)
 
         # Optionally create enhanced plan (currently not persisted)
-        # Fire-and-forget: runs in thread pool to avoid blocking event loop
         if self._enhancement_enabled:
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(
-                    asyncio.to_thread(
-                        self.create_enhanced_plan, plan, effective_session_id, user_id, token
-                    )
-                )
-            except RuntimeError:
-                # No running event loop (sync context) - skip enhancement
-                logger.debug("Skipping async enhancement: no running event loop")
+            await self.create_enhanced_plan(plan, effective_session_id, user_id, token, request_body)
 
         # Record in session if enabled
         if self._session_enabled:
@@ -261,6 +266,7 @@ class GovernanceMiddleware:
         session_id: str | None,
         user_id: str,
         token: str,
+        request_body: dict[str, Any],
     ) -> EnhancedExecutionPlan | None:
         """Create an enhanced plan from a basic plan.
 
@@ -278,7 +284,7 @@ class GovernanceMiddleware:
             enhanced_plan = self._planner.enhance(
                 basic_plan,
                 llm=self._get_llm(),
-                context=self._enhancement_context,
+                user_message = self._extract_user_message(request_body),
             )
 
             enhanced_plan.initialize_state(

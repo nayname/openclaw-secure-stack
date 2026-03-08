@@ -44,7 +44,7 @@ def strip_governance_headers(headers: dict[str, str]) -> dict[str, str]:
     return {k: v for k, v in headers.items() if not k.lower().startswith("x-governance-")}
 
 
-def evaluate_governance(
+async def evaluate_governance(
     governance: GovernanceMiddleware,
     body_json: dict[str, Any],
     raw_body: bytes,
@@ -78,7 +78,7 @@ def evaluate_governance(
     session_id = request.headers.get("x-governance-session")
 
     try:
-        result = governance.evaluate(body_json, session_id, user_id)
+        result = await governance.evaluate(body_json, session_id, user_id)
     except Exception:
         logger.exception("Governance evaluation failed")
         if audit_logger:

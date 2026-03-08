@@ -1,0 +1,2679 @@
+[
+	{
+		"section": "security_operations",
+		"generated_at": "2026-02-13T13:53:50.846820Z",
+		"tasks": [
+			{
+				"task_id": "security.rotate_api_keys",
+				"task_name": "Rotate API keys",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Identify all key usages",
+						"verify": "All consumers located"
+					},
+					{
+						"step": 2,
+						"action": "Generate new key",
+						"verify": "Key created in system"
+					},
+					{
+						"step": 3,
+						"action": "Test new key",
+						"verify": "API calls succeed"
+					},
+					{
+						"step": 4,
+						"action": "Update first consumer",
+						"verify": "Config or secret updated"
+					},
+					{
+						"step": 5,
+						"action": "Restart or redeploy first consumer",
+						"verify": "New key picked up"
+					},
+					{
+						"step": 6,
+						"action": "Verify first consumer working",
+						"verify": "Calls succeed"
+					},
+					{
+						"step": 7,
+						"action": "Repeat for all consumers",
+						"verify": "One by one migrated"
+					},
+					{
+						"step": 8,
+						"action": "Verify all consumers migrated",
+						"verify": "No old key usage"
+					},
+					{
+						"step": 9,
+						"action": "Revoke old key",
+						"verify": "Old key disabled"
+					},
+					{
+						"step": 10,
+						"action": "Verify old key rejected",
+						"verify": "Test call fails"
+					},
+					{
+						"step": 11,
+						"action": "Update documentation",
+						"verify": "New key recorded"
+					},
+					{
+						"step": 12,
+						"action": "Log action",
+						"verify": "Audit trail complete"
+					}
+				],
+				"abort_conditions": [
+					"New key does not work"
+				]
+			},
+			{
+				"task_id": "security.rotate_ssh_keys",
+				"task_name": "Rotate SSH keys",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Generate new key pair",
+						"verify": "Ed25519 or RSA 4096"
+					},
+					{
+						"step": 2,
+						"action": "Add new public key",
+						"verify": "authorized_keys updated"
+					},
+					{
+						"step": 3,
+						"action": "Test new key",
+						"verify": "SSH login works"
+					},
+					{
+						"step": 4,
+						"action": "Distribute new private key",
+						"verify": "Secure delivery"
+					},
+					{
+						"step": 5,
+						"action": "Verify all users can login",
+						"verify": "Access confirmed"
+					},
+					{
+						"step": 6,
+						"action": "Remove old public key",
+						"verify": "authorized_keys cleaned"
+					},
+					{
+						"step": 7,
+						"action": "Verify old key rejected",
+						"verify": "Login fails"
+					},
+					{
+						"step": 8,
+						"action": "Users delete old private key",
+						"verify": "Secure destruction"
+					},
+					{
+						"step": 9,
+						"action": "Update documentation",
+						"verify": "New fingerprint recorded"
+					},
+					{
+						"step": 10,
+						"action": "Log action",
+						"verify": "Key rotation complete"
+					}
+				],
+				"abort_conditions": [
+					"Users locked out"
+				]
+			},
+			{
+				"task_id": "security.block_suspicious_ip",
+				"task_name": "Block suspicious IP",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Analyze suspicious activity",
+						"verify": "Malicious behavior confirmed"
+					},
+					{
+						"step": 2,
+						"action": "Verify IP not legitimate",
+						"verify": "Not customer or partner"
+					},
+					{
+						"step": 3,
+						"action": "Check for related IPs",
+						"verify": "Same actor identified"
+					},
+					{
+						"step": 4,
+						"action": "Add firewall block",
+						"verify": "iptables or cloud SG updated"
+					},
+					{
+						"step": 5,
+						"action": "Verify block applied",
+						"verify": "Rule exists"
+					},
+					{
+						"step": 6,
+						"action": "Test IP blocked",
+						"verify": "Connection denied"
+					},
+					{
+						"step": 7,
+						"action": "Log action",
+						"verify": "IP and reason recorded"
+					}
+				]
+			}
+		]
+	},
+	{
+		"section": "monitoring_and_alerting",
+		"generated_at": "2026-02-13T13:52:47.553956Z",
+		"tasks": [
+			{
+				"task_id": "monitor.ack_investigate_alert",
+				"task_name": "Acknowledge and investigate alert",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Acknowledge alert",
+						"verify": "Escalation stopped"
+					},
+					{
+						"step": 2,
+						"action": "Read alert details",
+						"verify": "What, where, when understood"
+					},
+					{
+						"step": 3,
+						"action": "Check affected service",
+						"verify": "Current status known"
+					},
+					{
+						"step": 4,
+						"action": "Check related metrics",
+						"verify": "Context gathered"
+					},
+					{
+						"step": 5,
+						"action": "Check recent changes",
+						"verify": "Deployments/configs reviewed"
+					},
+					{
+						"step": 6,
+						"action": "Correlate with other alerts",
+						"verify": "Related issues identified"
+					},
+					{
+						"step": 7,
+						"action": "Determine severity",
+						"verify": "Impact assessed"
+					},
+					{
+						"step": 8,
+						"action": "Begin remediation",
+						"verify": "Action taken if needed"
+					},
+					{
+						"step": 9,
+						"action": "Update incident status",
+						"verify": "Progress notes added"
+					},
+					{
+						"step": 10,
+						"action": "Resolve alert",
+						"verify": "Alert no longer firing"
+					},
+					{
+						"step": 11,
+						"action": "Write postmortem",
+						"verify": "Completed if significant"
+					}
+				]
+			},
+			{
+				"task_id": "monitor.silence_alert",
+				"task_name": "Silence alert temporarily",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Document reason",
+						"verify": "Why silencing is needed"
+					},
+					{
+						"step": 2,
+						"action": "Determine duration",
+						"verify": "End time defined"
+					},
+					{
+						"step": 3,
+						"action": "Check if safe to silence",
+						"verify": "Not masking real issue"
+					},
+					{
+						"step": 4,
+						"action": "Create silence",
+						"verify": "Alertmanager/PagerDuty updated"
+					},
+					{
+						"step": 5,
+						"action": "Verify silence active",
+						"verify": "Alert no longer firing"
+					},
+					{
+						"step": 6,
+						"action": "Set reminder",
+						"verify": "Silence removal reminder set"
+					},
+					{
+						"step": 7,
+						"action": "Log action",
+						"verify": "Reason and duration recorded"
+					},
+					{
+						"step": 8,
+						"action": "Remove silence",
+						"verify": "Alert resumes when done"
+					}
+				]
+			},
+			{
+				"task_id": "monitor.update_threshold",
+				"task_name": "Update alert threshold",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Document current threshold",
+						"verify": "Baseline captured"
+					},
+					{
+						"step": 2,
+						"action": "Analyze alert history",
+						"verify": "Noise vs misses understood"
+					},
+					{
+						"step": 3,
+						"action": "Determine new threshold",
+						"verify": "Based on data"
+					},
+					{
+						"step": 4,
+						"action": "Update rule in version control",
+						"verify": "Git commit created"
+					},
+					{
+						"step": 5,
+						"action": "Deploy rule change",
+						"verify": "Applied to alert system"
+					},
+					{
+						"step": 6,
+						"action": "Verify rule updated",
+						"verify": "Config reflects change"
+					},
+					{
+						"step": 7,
+						"action": "Test alert firing",
+						"verify": "Threshold behaves correctly"
+					},
+					{
+						"step": 8,
+						"action": "Monitor over time",
+						"verify": "False positives/negatives acceptable"
+					},
+					{
+						"step": 9,
+						"action": "Log change",
+						"verify": "Old and new thresholds recorded"
+					}
+				]
+			},
+			{
+				"task_id": "monitor.add_dashboard",
+				"task_name": "Add new monitoring dashboard",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Define requirements",
+						"verify": "What to visualize"
+					},
+					{
+						"step": 2,
+						"action": "Identify data sources",
+						"verify": "Metrics/logs identified"
+					},
+					{
+						"step": 3,
+						"action": "Design queries",
+						"verify": "PromQL or equivalent"
+					},
+					{
+						"step": 4,
+						"action": "Test queries",
+						"verify": "Return expected data"
+					},
+					{
+						"step": 5,
+						"action": "Create dashboard",
+						"verify": "Dashboard created in Grafana"
+					},
+					{
+						"step": 6,
+						"action": "Add panels",
+						"verify": "Per requirements"
+					},
+					{
+						"step": 7,
+						"action": "Configure time ranges",
+						"verify": "Defaults appropriate"
+					},
+					{
+						"step": 8,
+						"action": "Add variables",
+						"verify": "Filters work if needed"
+					},
+					{
+						"step": 9,
+						"action": "Test dashboard",
+						"verify": "All panels functioning"
+					},
+					{
+						"step": 10,
+						"action": "Set permissions",
+						"verify": "View/edit access correct"
+					},
+					{
+						"step": 11,
+						"action": "Document dashboard",
+						"verify": "Purpose and usage recorded"
+					},
+					{
+						"step": 12,
+						"action": "Log action",
+						"verify": "Dashboard creation logged"
+					}
+				]
+			}
+		]
+	},
+	{
+		"section": "infrastructure_and_cloud",
+		"generated_at": "2026-02-13T13:34:35.233449Z",
+		"tasks": [
+			{
+				"task_id": "infra.respond_disk_full",
+				"task_name": "Respond to disk full alert",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Confirm disk usage",
+						"verify": "df -h shows threshold breach"
+					},
+					{
+						"step": 2,
+						"action": "Identify space consumers",
+						"verify": "du output sorted by size"
+					},
+					{
+						"step": 3,
+						"action": "Check obvious culprits",
+						"verify": "Logs, temp files, core dumps"
+					},
+					{
+						"step": 4,
+						"action": "Rotate or compress logs",
+						"verify": "logrotate executed"
+					},
+					{
+						"step": 5,
+						"action": "Clear temp files",
+						"verify": "/tmp and /var/tmp cleaned"
+					},
+					{
+						"step": 6,
+						"action": "Remove old packages",
+						"verify": "apt autoremove complete"
+					},
+					{
+						"step": 7,
+						"action": "Verify space freed",
+						"verify": "Disk usage below threshold"
+					},
+					{
+						"step": 8,
+						"action": "Identify ongoing growth",
+						"verify": "Process still writing identified"
+					},
+					{
+						"step": 9,
+						"action": "Fix root cause",
+						"verify": "Rotation or cleanup job added"
+					},
+					{
+						"step": 10,
+						"action": "Log incident",
+						"verify": "Actions and space freed recorded"
+					}
+				],
+				"abort_conditions": [
+					"Important data deleted",
+					"Production data removed"
+				]
+			},
+			{
+				"task_id": "infra.free_disk_space",
+				"task_name": "Free up disk space",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Check current usage",
+						"verify": "df -h per mount"
+					},
+					{
+						"step": 2,
+						"action": "Identify large directories",
+						"verify": "du output sorted"
+					},
+					{
+						"step": 3,
+						"action": "Check safe deletions",
+						"verify": "Logs, temp files, package cache"
+					},
+					{
+						"step": 4,
+						"action": "Delete identified files",
+						"verify": "Files removed safely"
+					},
+					{
+						"step": 5,
+						"action": "Verify space freed",
+						"verify": "df -h improved"
+					},
+					{
+						"step": 6,
+						"action": "Check for ongoing growth",
+						"verify": "Writer identified"
+					},
+					{
+						"step": 7,
+						"action": "Fix root cause",
+						"verify": "Cleanup automation added"
+					},
+					{
+						"step": 8,
+						"action": "Log action",
+						"verify": "What was deleted and why"
+					}
+				],
+				"abort_conditions": [
+					"Deleting files in use",
+					"Deleting important data"
+				]
+			},
+			{
+				"task_id": "infra.rotate_logs",
+				"task_name": "Rotate log files",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Check current log sizes",
+						"verify": "Large logs identified"
+					},
+					{
+						"step": 2,
+						"action": "Check logrotate config",
+						"verify": "Retention set correctly"
+					},
+					{
+						"step": 3,
+						"action": "Test rotation dry-run",
+						"verify": "logrotate -d succeeds"
+					},
+					{
+						"step": 4,
+						"action": "Execute rotation",
+						"verify": "logrotate -f"
+					},
+					{
+						"step": 5,
+						"action": "Verify logs rotated",
+						"verify": "New log files created"
+					},
+					{
+						"step": 6,
+						"action": "Verify old logs compressed",
+						"verify": ".gz files present"
+					},
+					{
+						"step": 7,
+						"action": "Verify old logs deleted",
+						"verify": "Retention policy applied"
+					},
+					{
+						"step": 8,
+						"action": "Verify service still logging",
+						"verify": "New entries appear"
+					},
+					{
+						"step": 9,
+						"action": "Log action",
+						"verify": "Rotation details recorded"
+					}
+				]
+			},
+			{
+				"task_id": "infra.update_ssl_cert",
+				"task_name": "Update SSL certificate",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Obtain new certificate",
+						"verify": "Certificate issued by CA"
+					},
+					{
+						"step": 2,
+						"action": "Validate certificate",
+						"verify": "Correct domain, not expired"
+					},
+					{
+						"step": 3,
+						"action": "Backup current certificate",
+						"verify": "Rollback possible"
+					},
+					{
+						"step": 4,
+						"action": "Deploy certificate",
+						"verify": "Installed in correct location"
+					},
+					{
+						"step": 5,
+						"action": "Set correct permissions",
+						"verify": "Restricted access"
+					},
+					{
+						"step": 6,
+						"action": "Validate config",
+						"verify": "nginx -t or equivalent passes"
+					},
+					{
+						"step": 7,
+						"action": "Reload service",
+						"verify": "systemctl reload"
+					},
+					{
+						"step": 8,
+						"action": "Verify HTTPS working",
+						"verify": "curl https:// succeeds"
+					},
+					{
+						"step": 9,
+						"action": "Verify certificate details",
+						"verify": "Correct cert served"
+					},
+					{
+						"step": 10,
+						"action": "Check certificate chain",
+						"verify": "Full chain valid"
+					},
+					{
+						"step": 11,
+						"action": "Test externally",
+						"verify": "SSL Labs or similar"
+					},
+					{
+						"step": 12,
+						"action": "Update monitoring",
+						"verify": "Expiry alert set"
+					},
+					{
+						"step": 13,
+						"action": "Log action",
+						"verify": "Old and new cert details"
+					}
+				],
+				"abort_conditions": [
+					"Invalid certificate",
+					"Config validation fails"
+				]
+			},
+			{
+				"task_id": "infra.add_firewall_rule",
+				"task_name": "Add firewall rule",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Document requirement",
+						"verify": "Access need and reason clear"
+					},
+					{
+						"step": 2,
+						"action": "Check existing rules",
+						"verify": "No conflicts"
+					},
+					{
+						"step": 3,
+						"action": "Plan rule",
+						"verify": "Source, destination, port, protocol"
+					},
+					{
+						"step": 4,
+						"action": "Backup current rules",
+						"verify": "iptables-save"
+					},
+					{
+						"step": 5,
+						"action": "Add rule",
+						"verify": "iptables or cloud SG updated"
+					},
+					{
+						"step": 6,
+						"action": "Verify rule added",
+						"verify": "Rule listed"
+					},
+					{
+						"step": 7,
+						"action": "Test connectivity",
+						"verify": "Required access works"
+					},
+					{
+						"step": 8,
+						"action": "Verify no side effects",
+						"verify": "Other access intact"
+					},
+					{
+						"step": 9,
+						"action": "Persist rules",
+						"verify": "Rules survive reboot"
+					},
+					{
+						"step": 10,
+						"action": "Log action",
+						"verify": "Rule details recorded"
+					}
+				],
+				"abort_conditions": [
+					"Rule breaks existing access"
+				]
+			},
+			{
+				"task_id": "infra.provision_server",
+				"task_name": "Provision new server",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Check requirements",
+						"verify": "Size, region, network defined"
+					},
+					{
+						"step": 2,
+						"action": "Verify quota",
+						"verify": "Capacity available"
+					},
+					{
+						"step": 3,
+						"action": "Create server",
+						"verify": "Terraform or console used"
+					},
+					{
+						"step": 4,
+						"action": "Wait for server ready",
+						"verify": "Instance running"
+					},
+					{
+						"step": 5,
+						"action": "Verify network access",
+						"verify": "SSH reachable"
+					},
+					{
+						"step": 6,
+						"action": "Run initial configuration",
+						"verify": "Ansible or user-data applied"
+					},
+					{
+						"step": 7,
+						"action": "Verify configuration",
+						"verify": "Packages and configs correct"
+					},
+					{
+						"step": 8,
+						"action": "Verify monitoring agent",
+						"verify": "Metrics flowing"
+					},
+					{
+						"step": 9,
+						"action": "Add to load balancer",
+						"verify": "If applicable"
+					},
+					{
+						"step": 10,
+						"action": "Verify traffic routing",
+						"verify": "Receiving requests"
+					},
+					{
+						"step": 11,
+						"action": "Run smoke tests",
+						"verify": "Service functional"
+					},
+					{
+						"step": 12,
+						"action": "Update inventory",
+						"verify": "Server documented"
+					},
+					{
+						"step": 13,
+						"action": "Log action",
+						"verify": "Provisioning details recorded"
+					}
+				]
+			},
+			{
+				"task_id": "infra.decommission_server",
+				"task_name": "Decommission server",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Document server",
+						"verify": "Dependencies known"
+					},
+					{
+						"step": 2,
+						"action": "Notify stakeholders",
+						"verify": "Planned decommission communicated"
+					},
+					{
+						"step": 3,
+						"action": "Remove from monitoring",
+						"verify": "Alerts silenced"
+					},
+					{
+						"step": 4,
+						"action": "Drain traffic",
+						"verify": "Removed from load balancer"
+					},
+					{
+						"step": 5,
+						"action": "Stop services",
+						"verify": "Graceful shutdown"
+					},
+					{
+						"step": 6,
+						"action": "Backup critical data",
+						"verify": "Backup completed"
+					},
+					{
+						"step": 7,
+						"action": "Verify data backed up",
+						"verify": "Restorable"
+					},
+					{
+						"step": 8,
+						"action": "Terminate server",
+						"verify": "Instance deleted"
+					},
+					{
+						"step": 9,
+						"action": "Verify terminated",
+						"verify": "Instance gone"
+					},
+					{
+						"step": 10,
+						"action": "Clean up related resources",
+						"verify": "DNS, SGs removed"
+					},
+					{
+						"step": 11,
+						"action": "Update inventory",
+						"verify": "Server removed from docs"
+					},
+					{
+						"step": 12,
+						"action": "Log action",
+						"verify": "Decommission details"
+					}
+				],
+				"abort_conditions": [
+					"Data not backed up",
+					"Dependent services still active"
+				]
+			},
+			{
+				"task_id": "infra.resize_disk",
+				"task_name": "Resize disk volume",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Check current usage",
+						"verify": "Resize justified"
+					},
+					{
+						"step": 2,
+						"action": "Create snapshot",
+						"verify": "Backup before change"
+					},
+					{
+						"step": 3,
+						"action": "Verify snapshot complete",
+						"verify": "Snapshot ready"
+					},
+					{
+						"step": 4,
+						"action": "Resize volume",
+						"verify": "Cloud API/console"
+					},
+					{
+						"step": 5,
+						"action": "Verify volume resized",
+						"verify": "New size visible"
+					},
+					{
+						"step": 6,
+						"action": "Extend filesystem",
+						"verify": "resize2fs or equivalent"
+					},
+					{
+						"step": 7,
+						"action": "Verify filesystem extended",
+						"verify": "df -h shows new size"
+					},
+					{
+						"step": 8,
+						"action": "Verify data intact",
+						"verify": "No corruption"
+					},
+					{
+						"step": 9,
+						"action": "Delete or keep snapshot",
+						"verify": "Per policy"
+					},
+					{
+						"step": 10,
+						"action": "Log action",
+						"verify": "Old and new size recorded"
+					}
+				],
+				"abort_conditions": [
+					"Resize fails",
+					"Filesystem corruption detected"
+				]
+			}
+		]
+	},
+	{
+		"section": "kubernetes_operations",
+		"generated_at": "2026-02-13T13:32:59.328006Z",
+		"tasks": [
+			{
+				"task_id": "k8s.delete_stuck_pod",
+				"task_name": "Delete stuck pod",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Identify stuck pod",
+						"verify": "Name, namespace, state"
+					},
+					{
+						"step": 2,
+						"action": "Capture pod logs",
+						"verify": "kubectl logs (including --previous)"
+					},
+					{
+						"step": 3,
+						"action": "Capture pod describe",
+						"verify": "Events and conditions recorded"
+					},
+					{
+						"step": 4,
+						"action": "Check if part of pattern",
+						"verify": "Other pods similarly stuck"
+					},
+					{
+						"step": 5,
+						"action": "Delete pod",
+						"verify": "kubectl delete pod"
+					},
+					{
+						"step": 6,
+						"action": "Verify pod terminated",
+						"verify": "Pod no longer exists"
+					},
+					{
+						"step": 7,
+						"action": "Verify replacement scheduled",
+						"verify": "New pod created by controller"
+					},
+					{
+						"step": 8,
+						"action": "Wait for replacement ready",
+						"verify": "New pod Running"
+					},
+					{
+						"step": 9,
+						"action": "Verify replacement healthy",
+						"verify": "Health checks passing"
+					},
+					{
+						"step": 10,
+						"action": "Log incident",
+						"verify": "Reason documented"
+					}
+				],
+				"abort_conditions": [
+					"Replacement pod also stuck"
+				]
+			},
+			{
+				"task_id": "k8s.drain_node",
+				"task_name": "Drain node for maintenance",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Check node workloads",
+						"verify": "Pods running on node identified"
+					},
+					{
+						"step": 2,
+						"action": "Check cluster capacity",
+						"verify": "Other nodes can absorb workload"
+					},
+					{
+						"step": 3,
+						"action": "Cordon node",
+						"verify": "kubectl cordon applied"
+					},
+					{
+						"step": 4,
+						"action": "Drain node",
+						"verify": "kubectl drain --ignore-daemonsets"
+					},
+					{
+						"step": 5,
+						"action": "Wait for pods evicted",
+						"verify": "All pods moved"
+					},
+					{
+						"step": 6,
+						"action": "Verify pods rescheduled",
+						"verify": "Pods running on other nodes"
+					},
+					{
+						"step": 7,
+						"action": "Verify service continuity",
+						"verify": "No outage observed"
+					},
+					{
+						"step": 8,
+						"action": "Perform maintenance",
+						"verify": "Maintenance completed"
+					},
+					{
+						"step": 9,
+						"action": "Verify node health",
+						"verify": "Node ready post-maintenance"
+					},
+					{
+						"step": 10,
+						"action": "Uncordon node",
+						"verify": "kubectl uncordon applied"
+					},
+					{
+						"step": 11,
+						"action": "Verify node accepting pods",
+						"verify": "New pods can schedule"
+					},
+					{
+						"step": 12,
+						"action": "Log action",
+						"verify": "Maintenance documented"
+					}
+				],
+				"abort_conditions": [
+					"Insufficient cluster capacity",
+					"Pods fail to evict"
+				]
+			},
+			{
+				"task_id": "k8s.investigate_crashloop",
+				"task_name": "Investigate pod crash loop",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Identify crashing pod",
+						"verify": "Name and restart count"
+					},
+					{
+						"step": 2,
+						"action": "Get pod events",
+						"verify": "kubectl describe pod"
+					},
+					{
+						"step": 3,
+						"action": "Get current logs",
+						"verify": "kubectl logs"
+					},
+					{
+						"step": 4,
+						"action": "Get previous container logs",
+						"verify": "kubectl logs --previous"
+					},
+					{
+						"step": 5,
+						"action": "Check exit code",
+						"verify": "OOMKilled, Error, etc"
+					},
+					{
+						"step": 6,
+						"action": "Check resource limits",
+						"verify": "CPU/memory sufficient"
+					},
+					{
+						"step": 7,
+						"action": "Check probes",
+						"verify": "Liveness/readiness correct"
+					},
+					{
+						"step": 8,
+						"action": "Check dependencies",
+						"verify": "ConfigMaps, Secrets, Services available"
+					},
+					{
+						"step": 9,
+						"action": "Check recent changes",
+						"verify": "Deployments or config changes"
+					},
+					{
+						"step": 10,
+						"action": "Identify root cause",
+						"verify": "Resource, config, code, or dependency"
+					},
+					{
+						"step": 11,
+						"action": "Document findings",
+						"verify": "For remediation"
+					},
+					{
+						"step": 12,
+						"action": "Recommend fix",
+						"verify": "Immediate and long-term"
+					}
+				]
+			},
+			{
+				"task_id": "k8s.update_configmap_restart",
+				"task_name": "Update ConfigMap and restart deployment",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Backup current ConfigMap",
+						"verify": "Current version saved"
+					},
+					{
+						"step": 2,
+						"action": "Validate new config",
+						"verify": "Syntax and required fields"
+					},
+					{
+						"step": 3,
+						"action": "Apply ConfigMap update",
+						"verify": "kubectl apply"
+					},
+					{
+						"step": 4,
+						"action": "Verify ConfigMap updated",
+						"verify": "kubectl get configmap"
+					},
+					{
+						"step": 5,
+						"action": "Trigger rolling restart",
+						"verify": "kubectl rollout restart"
+					},
+					{
+						"step": 6,
+						"action": "Monitor rollout progress",
+						"verify": "kubectl rollout status"
+					},
+					{
+						"step": 7,
+						"action": "Verify pods have new config",
+						"verify": "Mounted config updated"
+					},
+					{
+						"step": 8,
+						"action": "Verify application health",
+						"verify": "Health checks passing"
+					},
+					{
+						"step": 9,
+						"action": "Verify config changes applied",
+						"verify": "Behavior correct"
+					},
+					{
+						"step": 10,
+						"action": "Log action",
+						"verify": "What changed and why"
+					}
+				],
+				"abort_conditions": [
+					"Config invalid",
+					"Rollout fails"
+				]
+			},
+			{
+				"task_id": "k8s.scale_deployment",
+				"task_name": "Scale deployment based on load",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Check current metrics",
+						"verify": "CPU, memory, request rate"
+					},
+					{
+						"step": 2,
+						"action": "Check current replica count",
+						"verify": "Baseline documented"
+					},
+					{
+						"step": 3,
+						"action": "Calculate target replicas",
+						"verify": "Based on load"
+					},
+					{
+						"step": 4,
+						"action": "Check cluster capacity",
+						"verify": "Sufficient resources"
+					},
+					{
+						"step": 5,
+						"action": "Apply scaling",
+						"verify": "kubectl scale"
+					},
+					{
+						"step": 6,
+						"action": "Wait for new replicas",
+						"verify": "Pods Running"
+					},
+					{
+						"step": 7,
+						"action": "Verify health checks",
+						"verify": "All replicas healthy"
+					},
+					{
+						"step": 8,
+						"action": "Verify load distribution",
+						"verify": "Traffic balanced"
+					},
+					{
+						"step": 9,
+						"action": "Monitor metrics",
+						"verify": "Load normalized"
+					},
+					{
+						"step": 10,
+						"action": "Log action",
+						"verify": "Scaling reason and details"
+					}
+				]
+			},
+			{
+				"task_id": "k8s.rollback_failed_deployment",
+				"task_name": "Rollback failed deployment",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Confirm deployment failing",
+						"verify": "Pods crashing or errors spiking"
+					},
+					{
+						"step": 2,
+						"action": "Check rollout history",
+						"verify": "Previous versions available"
+					},
+					{
+						"step": 3,
+						"action": "Identify rollback target",
+						"verify": "Last known good version"
+					},
+					{
+						"step": 4,
+						"action": "Execute rollback",
+						"verify": "kubectl rollout undo"
+					},
+					{
+						"step": 5,
+						"action": "Monitor rollout",
+						"verify": "Previous version deploying"
+					},
+					{
+						"step": 6,
+						"action": "Verify pods healthy",
+						"verify": "All pods Running"
+					},
+					{
+						"step": 7,
+						"action": "Verify application health",
+						"verify": "Errors back to baseline"
+					},
+					{
+						"step": 8,
+						"action": "Confirm rollback complete",
+						"verify": "Correct version running"
+					},
+					{
+						"step": 9,
+						"action": "Log incident",
+						"verify": "Failure and rollback details"
+					},
+					{
+						"step": 10,
+						"action": "Create investigation ticket",
+						"verify": "Root cause analysis started"
+					}
+				]
+			},
+			{
+				"task_id": "k8s.exec_debug",
+				"task_name": "Execute command in pod for debugging",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Identify target pod",
+						"verify": "Name and namespace"
+					},
+					{
+						"step": 2,
+						"action": "Verify pod is running",
+						"verify": "Can accept exec"
+					},
+					{
+						"step": 3,
+						"action": "Document reason",
+						"verify": "Why debugging needed"
+					},
+					{
+						"step": 4,
+						"action": "Exec into pod",
+						"verify": "kubectl exec -it"
+					},
+					{
+						"step": 5,
+						"action": "Perform diagnostics",
+						"verify": "Required commands executed"
+					},
+					{
+						"step": 6,
+						"action": "Capture output",
+						"verify": "Logs or notes saved"
+					},
+					{
+						"step": 7,
+						"action": "Exit pod",
+						"verify": "Clean exit"
+					},
+					{
+						"step": 8,
+						"action": "Document findings",
+						"verify": "What was discovered"
+					},
+					{
+						"step": 9,
+						"action": "Log action",
+						"verify": "Audit trail of exec"
+					}
+				]
+			}
+		]
+	},
+	{
+		"section": "database_operations",
+		"generated_at": "2026-02-13T13:29:58.684804Z",
+		"tasks": [
+			{
+				"task_id": "db.purge_expired_sessions",
+				"task_name": "Purge expired sessions from database",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Identify target table",
+						"verify": "Correct table name and schema confirmed"
+					},
+					{
+						"step": 2,
+						"action": "Check table is not protected",
+						"verify": "Not listed as protected table"
+					},
+					{
+						"step": 3,
+						"action": "Preview affected rows",
+						"verify": "SELECT COUNT(*) WHERE expired_at < NOW()"
+					},
+					{
+						"step": 4,
+						"action": "Verify count is reasonable",
+						"verify": "Within expected threshold"
+					},
+					{
+						"step": 5,
+						"action": "Check for foreign keys",
+						"verify": "Cascade effects understood"
+					},
+					{
+						"step": 6,
+						"action": "Backup if needed",
+						"verify": "Backup completed for large deletes"
+					},
+					{
+						"step": 7,
+						"action": "Execute delete in batches",
+						"verify": "DELETE ... LIMIT 1000 loop"
+					},
+					{
+						"step": 8,
+						"action": "Verify rows deleted",
+						"verify": "Deleted count matches preview"
+					},
+					{
+						"step": 9,
+						"action": "Run VACUUM / ANALYZE",
+						"verify": "Space reclaimed, stats updated"
+					},
+					{
+						"step": 10,
+						"action": "Verify table health",
+						"verify": "No corruption, indexes valid"
+					},
+					{
+						"step": 11,
+						"action": "Log action",
+						"verify": "Rows deleted and space reclaimed recorded"
+					}
+				],
+				"abort_conditions": [
+					"Wrong table selected",
+					"Delete count exceeds threshold",
+					"Protected table detected"
+				]
+			},
+			{
+				"task_id": "db.backup",
+				"task_name": "Run database backup",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Check backup destination",
+						"verify": "Sufficient space and access"
+					},
+					{
+						"step": 2,
+						"action": "Check replication lag",
+						"verify": "Replica suitable for backup"
+					},
+					{
+						"step": 3,
+						"action": "Announce backup",
+						"verify": "Stakeholders notified if required"
+					},
+					{
+						"step": 4,
+						"action": "Execute backup",
+						"verify": "pg_dump or equivalent executed"
+					},
+					{
+						"step": 5,
+						"action": "Verify backup completed",
+						"verify": "Exit code 0, no errors"
+					},
+					{
+						"step": 6,
+						"action": "Check backup size",
+						"verify": "Comparable to previous backups"
+					},
+					{
+						"step": 7,
+						"action": "Test backup integrity",
+						"verify": "pg_restore --list or checksum"
+					},
+					{
+						"step": 8,
+						"action": "Upload to remote storage",
+						"verify": "Encrypted upload completed"
+					},
+					{
+						"step": 9,
+						"action": "Verify upload",
+						"verify": "Remote file exists, size matches"
+					},
+					{
+						"step": 10,
+						"action": "Update backup manifest",
+						"verify": "Metadata recorded"
+					},
+					{
+						"step": 11,
+						"action": "Clean old backups",
+						"verify": "Retention policy applied"
+					},
+					{
+						"step": 12,
+						"action": "Log action",
+						"verify": "Backup details and duration logged"
+					}
+				]
+			},
+			{
+				"task_id": "db.restore",
+				"task_name": "Restore database from backup",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Identify target backup",
+						"verify": "Timestamp and contents confirmed"
+					},
+					{
+						"step": 2,
+						"action": "Verify backup integrity",
+						"verify": "Checksum or test restore passes"
+					},
+					{
+						"step": 3,
+						"action": "Notify stakeholders",
+						"verify": "Downtime communicated"
+					},
+					{
+						"step": 4,
+						"action": "Stop application services",
+						"verify": "No active connections"
+					},
+					{
+						"step": 5,
+						"action": "Backup current state",
+						"verify": "Safety backup completed"
+					},
+					{
+						"step": 6,
+						"action": "Drop or rename existing database",
+						"verify": "Target cleared"
+					},
+					{
+						"step": 7,
+						"action": "Restore from backup",
+						"verify": "pg_restore executed"
+					},
+					{
+						"step": 8,
+						"action": "Verify restore completed",
+						"verify": "Exit code success, row counts sane"
+					},
+					{
+						"step": 9,
+						"action": "Run integrity checks",
+						"verify": "Key tables populated"
+					},
+					{
+						"step": 10,
+						"action": "Apply needed migrations",
+						"verify": "Schema consistent"
+					},
+					{
+						"step": 11,
+						"action": "Start application services",
+						"verify": "Services running"
+					},
+					{
+						"step": 12,
+						"action": "Verify application health",
+						"verify": "End-to-end tests pass"
+					},
+					{
+						"step": 13,
+						"action": "Monitor for issues",
+						"verify": "Errors and data integrity ok"
+					},
+					{
+						"step": 14,
+						"action": "Log action",
+						"verify": "Full audit trail recorded"
+					}
+				],
+				"abort_conditions": [
+					"Backup corrupted",
+					"Restore fails",
+					"Data integrity issues detected"
+				]
+			},
+			{
+				"task_id": "db.failover_replica",
+				"task_name": "Failover to database replica",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Confirm primary unhealthy",
+						"verify": "Not a false alarm"
+					},
+					{
+						"step": 2,
+						"action": "Check replica status",
+						"verify": "Healthy, replication lag known"
+					},
+					{
+						"step": 3,
+						"action": "Document replication lag",
+						"verify": "Potential data loss assessed"
+					},
+					{
+						"step": 4,
+						"action": "Stop writes to primary",
+						"verify": "Split-brain prevented"
+					},
+					{
+						"step": 5,
+						"action": "Wait for replica catch-up",
+						"verify": "Lag minimized if possible"
+					},
+					{
+						"step": 6,
+						"action": "Promote replica",
+						"verify": "pg_ctl promote successful"
+					},
+					{
+						"step": 7,
+						"action": "Verify replica writable",
+						"verify": "INSERT test succeeds"
+					},
+					{
+						"step": 8,
+						"action": "Update connection strings",
+						"verify": "Apps point to new primary"
+					},
+					{
+						"step": 9,
+						"action": "Restart application services",
+						"verify": "Connections refreshed"
+					},
+					{
+						"step": 10,
+						"action": "Verify application health",
+						"verify": "Reads and writes working"
+					},
+					{
+						"step": 11,
+						"action": "Disable old primary",
+						"verify": "Cannot accept writes"
+					},
+					{
+						"step": 12,
+						"action": "Begin old primary recovery",
+						"verify": "Rebuild as replica started"
+					},
+					{
+						"step": 13,
+						"action": "Log incident",
+						"verify": "Timeline and data loss recorded"
+					}
+				],
+				"abort_conditions": [
+					"Replica too far behind",
+					"Promotion fails"
+				]
+			},
+			{
+				"task_id": "db.rotate_credentials",
+				"task_name": "Rotate database credentials",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Generate new credentials",
+						"verify": "Strong password or key"
+					},
+					{
+						"step": 2,
+						"action": "Create user or update password",
+						"verify": "Database updated"
+					},
+					{
+						"step": 3,
+						"action": "Verify new credentials",
+						"verify": "Test connection succeeds"
+					},
+					{
+						"step": 4,
+						"action": "Update first application",
+						"verify": "Config or secrets updated"
+					},
+					{
+						"step": 5,
+						"action": "Restart first application",
+						"verify": "Picks up new creds"
+					},
+					{
+						"step": 6,
+						"action": "Verify first app connectivity",
+						"verify": "Queries succeed"
+					},
+					{
+						"step": 7,
+						"action": "Repeat for remaining applications",
+						"verify": "One by one"
+					},
+					{
+						"step": 8,
+						"action": "Verify all apps migrated",
+						"verify": "No old credential usage"
+					},
+					{
+						"step": 9,
+						"action": "Revoke old credentials",
+						"verify": "Old user/password removed"
+					},
+					{
+						"step": 10,
+						"action": "Verify old credentials rejected",
+						"verify": "Connection fails"
+					},
+					{
+						"step": 11,
+						"action": "Update documentation",
+						"verify": "Rotation recorded"
+					},
+					{
+						"step": 12,
+						"action": "Log action",
+						"verify": "Audit trail completed"
+					}
+				],
+				"abort_conditions": [
+					"New credentials do not work",
+					"Application fails to connect"
+				]
+			},
+			{
+				"task_id": "db.kill_long_running_query",
+				"task_name": "Kill long-running query",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Identify query",
+						"verify": "PID, text, duration, user"
+					},
+					{
+						"step": 2,
+						"action": "Assess impact",
+						"verify": "Interruption consequences understood"
+					},
+					{
+						"step": 3,
+						"action": "Check locks held",
+						"verify": "Blocked queries identified"
+					},
+					{
+						"step": 4,
+						"action": "Notify user if possible",
+						"verify": "Cancellation communicated"
+					},
+					{
+						"step": 5,
+						"action": "Cancel query",
+						"verify": "pg_cancel_backend(pid)"
+					},
+					{
+						"step": 6,
+						"action": "Terminate if needed",
+						"verify": "pg_terminate_backend(pid)"
+					},
+					{
+						"step": 7,
+						"action": "Verify query stopped",
+						"verify": "Not in pg_stat_activity"
+					},
+					{
+						"step": 8,
+						"action": "Verify locks released",
+						"verify": "Blocked queries proceed"
+					},
+					{
+						"step": 9,
+						"action": "Check side effects",
+						"verify": "Transactions rolled back"
+					},
+					{
+						"step": 10,
+						"action": "Log action",
+						"verify": "Query details recorded"
+					},
+					{
+						"step": 11,
+						"action": "Investigate root cause",
+						"verify": "Why query was slow"
+					}
+				]
+			},
+			{
+				"task_id": "db.add_index",
+				"task_name": "Add index to production table",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Analyze query patterns",
+						"verify": "Index will help"
+					},
+					{
+						"step": 2,
+						"action": "Check table size",
+						"verify": "Index build time estimated"
+					},
+					{
+						"step": 3,
+						"action": "Check disk space",
+						"verify": "Sufficient for index"
+					},
+					{
+						"step": 4,
+						"action": "Plan maintenance window",
+						"verify": "If required"
+					},
+					{
+						"step": 5,
+						"action": "Create index CONCURRENTLY",
+						"verify": "No table lock"
+					},
+					{
+						"step": 6,
+						"action": "Monitor progress",
+						"verify": "pg_stat_progress_create_index"
+					},
+					{
+						"step": 7,
+						"action": "Verify index created",
+						"verify": "Index visible"
+					},
+					{
+						"step": 8,
+						"action": "Verify index valid",
+						"verify": "Not marked INVALID"
+					},
+					{
+						"step": 9,
+						"action": "Run ANALYZE",
+						"verify": "Statistics updated"
+					},
+					{
+						"step": 10,
+						"action": "Test query performance",
+						"verify": "Index used"
+					},
+					{
+						"step": 11,
+						"action": "Monitor regressions",
+						"verify": "Other queries unaffected"
+					},
+					{
+						"step": 12,
+						"action": "Log action",
+						"verify": "Index details recorded"
+					}
+				],
+				"abort_conditions": [
+					"Disk full",
+					"Table locked",
+					"Index creation fails"
+				]
+			},
+			{
+				"task_id": "db.health_check",
+				"task_name": "Check database health",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Test connectivity",
+						"verify": "SELECT 1 succeeds"
+					},
+					{
+						"step": 2,
+						"action": "Check replication status",
+						"verify": "Lag within threshold"
+					},
+					{
+						"step": 3,
+						"action": "Check active connections",
+						"verify": "Below limit"
+					},
+					{
+						"step": 4,
+						"action": "Check long-running queries",
+						"verify": "None blocking"
+					},
+					{
+						"step": 5,
+						"action": "Check table bloat",
+						"verify": "No excessive bloat"
+					},
+					{
+						"step": 6,
+						"action": "Check disk usage",
+						"verify": "Sufficient free space"
+					},
+					{
+						"step": 7,
+						"action": "Check recent errors",
+						"verify": "Logs clean"
+					},
+					{
+						"step": 8,
+						"action": "Check backup status",
+						"verify": "Recent backup exists"
+					},
+					{
+						"step": 9,
+						"action": "Report health status",
+						"verify": "Healthy or issues listed"
+					}
+				]
+			}
+		]
+	},
+	{
+		"section": "incident_response",
+		"generated_at": "2026-02-13T13:16:03.330455Z",
+		"tasks": [
+			{
+				"task_id": "incident.diagnose_slow_service",
+				"task_name": "Diagnose why service is slow",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Confirm symptoms",
+						"verify": "Endpoints affected, since when, affected users"
+					},
+					{
+						"step": 2,
+						"action": "Check service metrics",
+						"verify": "Latency percentiles, throughput"
+					},
+					{
+						"step": 3,
+						"action": "Check resource utilization",
+						"verify": "CPU, memory, disk I/O, network"
+					},
+					{
+						"step": 4,
+						"action": "Check dependency latency",
+						"verify": "Database, cache, upstream services"
+					},
+					{
+						"step": 5,
+						"action": "Check for recent changes",
+						"verify": "Deployments, configuration changes"
+					},
+					{
+						"step": 6,
+						"action": "Check error logs",
+						"verify": "Errors correlate with slowdown"
+					},
+					{
+						"step": 7,
+						"action": "Sample slow requests",
+						"verify": "Trace analysis performed"
+					},
+					{
+						"step": 8,
+						"action": "Identify bottleneck",
+						"verify": "Resource, dependency, or code issue identified"
+					},
+					{
+						"step": 9,
+						"action": "Document findings",
+						"verify": "Root cause hypothesis written"
+					},
+					{
+						"step": 10,
+						"action": "Recommend remediation",
+						"verify": "Immediate and long-term actions defined"
+					}
+				]
+			},
+			{
+				"task_id": "incident.mitigate_high_cpu",
+				"task_name": "Mitigate high CPU usage",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Identify CPU consumers",
+						"verify": "top/ps shows processes"
+					},
+					{
+						"step": 2,
+						"action": "Correlate with timeline",
+						"verify": "Start time identified"
+					},
+					{
+						"step": 3,
+						"action": "Check if expected",
+						"verify": "Traffic spike vs runaway process"
+					},
+					{
+						"step": 4,
+						"action": "Capture diagnostics",
+						"verify": "Stack trace, logs collected"
+					},
+					{
+						"step": 5,
+						"action": "Kill runaway process",
+						"verify": "SIGTERM then SIGKILL if needed"
+					},
+					{
+						"step": 6,
+						"action": "Verify CPU dropped",
+						"verify": "CPU returns to baseline"
+					},
+					{
+						"step": 7,
+						"action": "Log incident",
+						"verify": "Actions and impact recorded"
+					},
+					{
+						"step": 8,
+						"action": "Create follow-up",
+						"verify": "Root cause investigation ticket created"
+					}
+				],
+				"abort_conditions": [
+					"Wrong process killed",
+					"Service becomes unavailable"
+				]
+			},
+			{
+				"task_id": "incident.mitigate_high_memory",
+				"task_name": "Mitigate high memory usage",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Check memory consumers",
+						"verify": "Processes and usage identified"
+					},
+					{
+						"step": 2,
+						"action": "Check for leak pattern",
+						"verify": "Gradual growth vs sudden spike"
+					},
+					{
+						"step": 3,
+						"action": "Check OOM killer logs",
+						"verify": "Any recent kills"
+					},
+					{
+						"step": 4,
+						"action": "Capture heap dump",
+						"verify": "Heap dump stored"
+					},
+					{
+						"step": 5,
+						"action": "Restart affected service",
+						"verify": "Memory released"
+					},
+					{
+						"step": 6,
+						"action": "Clear caches if applicable",
+						"verify": "Memory freed"
+					},
+					{
+						"step": 7,
+						"action": "Monitor for recurrence",
+						"verify": "Alerting in place"
+					},
+					{
+						"step": 8,
+						"action": "Log incident",
+						"verify": "Actions documented"
+					},
+					{
+						"step": 9,
+						"action": "Create ticket",
+						"verify": "Root cause investigation started"
+					}
+				]
+			},
+			{
+				"task_id": "incident.failover_backup_region",
+				"task_name": "Failover to backup region",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Confirm primary region failure",
+						"verify": "Not a false alarm"
+					},
+					{
+						"step": 2,
+						"action": "Check backup region health",
+						"verify": "Services running"
+					},
+					{
+						"step": 3,
+						"action": "Check replication lag",
+						"verify": "Data loss assessed"
+					},
+					{
+						"step": 4,
+						"action": "Notify stakeholders",
+						"verify": "Failover announced"
+					},
+					{
+						"step": 5,
+						"action": "Update DNS/load balancer",
+						"verify": "Traffic redirected"
+					},
+					{
+						"step": 6,
+						"action": "Verify traffic on backup",
+						"verify": "Requests arriving"
+					},
+					{
+						"step": 7,
+						"action": "Monitor backup region",
+						"verify": "Capacity sufficient"
+					},
+					{
+						"step": 8,
+						"action": "Disable primary region",
+						"verify": "Split-brain prevented"
+					},
+					{
+						"step": 9,
+						"action": "Confirm failover complete",
+						"verify": "All traffic on backup"
+					},
+					{
+						"step": 10,
+						"action": "Document data loss",
+						"verify": "Incident report updated"
+					},
+					{
+						"step": 11,
+						"action": "Begin primary recovery",
+						"verify": "Recovery in progress"
+					},
+					{
+						"step": 12,
+						"action": "Log incident",
+						"verify": "Full timeline captured"
+					}
+				],
+				"abort_conditions": [
+					"Backup region unhealthy",
+					"Unacceptable data loss"
+				]
+			},
+			{
+				"task_id": "incident.kill_runaway_process",
+				"task_name": "Kill runaway process",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Identify process",
+						"verify": "PID, command, owner known"
+					},
+					{
+						"step": 2,
+						"action": "Assess impact",
+						"verify": "Dependencies understood"
+					},
+					{
+						"step": 3,
+						"action": "Capture diagnostics",
+						"verify": "strace, lsof, logs"
+					},
+					{
+						"step": 4,
+						"action": "Attempt graceful kill",
+						"verify": "SIGTERM sent"
+					},
+					{
+						"step": 5,
+						"action": "Wait for termination",
+						"verify": "Process exits"
+					},
+					{
+						"step": 6,
+						"action": "Force kill if needed",
+						"verify": "SIGKILL sent"
+					},
+					{
+						"step": 7,
+						"action": "Verify process gone",
+						"verify": "PID no longer exists"
+					},
+					{
+						"step": 8,
+						"action": "Check for respawn",
+						"verify": "No unexpected restart"
+					},
+					{
+						"step": 9,
+						"action": "Verify resources freed",
+						"verify": "CPU/memory normalized"
+					},
+					{
+						"step": 10,
+						"action": "Check dependent services",
+						"verify": "Services functioning"
+					},
+					{
+						"step": 11,
+						"action": "Log action",
+						"verify": "What, why, impact recorded"
+					},
+					{
+						"step": 12,
+						"action": "Create follow-up ticket",
+						"verify": "Root cause tracked"
+					}
+				]
+			},
+			{
+				"task_id": "incident.disk_full_alert",
+				"task_name": "Respond to disk full alert",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Confirm disk usage",
+						"verify": "df -h shows threshold breach"
+					},
+					{
+						"step": 2,
+						"action": "Identify space consumers",
+						"verify": "du results sorted"
+					},
+					{
+						"step": 3,
+						"action": "Check obvious culprits",
+						"verify": "Logs, temp files, dumps"
+					},
+					{
+						"step": 4,
+						"action": "Rotate or compress logs",
+						"verify": "logrotate executed"
+					},
+					{
+						"step": 5,
+						"action": "Clear temp files",
+						"verify": "/tmp and /var/tmp cleaned"
+					},
+					{
+						"step": 6,
+						"action": "Remove old packages",
+						"verify": "apt autoremove complete"
+					},
+					{
+						"step": 7,
+						"action": "Verify space freed",
+						"verify": "Disk below threshold"
+					},
+					{
+						"step": 8,
+						"action": "Identify ongoing growth",
+						"verify": "Writer identified"
+					},
+					{
+						"step": 9,
+						"action": "Fix root cause",
+						"verify": "Rotation or cleanup job added"
+					},
+					{
+						"step": 10,
+						"action": "Log incident",
+						"verify": "Actions and space freed recorded"
+					}
+				],
+				"abort_conditions": [
+					"Important data deleted",
+					"Production data removed"
+				]
+			}
+		]
+	},
+	{
+		"section": "service_management",
+		"generated_at": "2026-02-13T13:19:53.878534Z",
+		"tasks": [
+			{
+				"task_id": "service.restart",
+				"task_name": "Restart the service",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Check current state",
+						"verify": "Service status, uptime, current config version"
+					},
+					{
+						"step": 2,
+						"action": "Validate config",
+						"verify": "nginx -t or equivalent passes"
+					},
+					{
+						"step": 3,
+						"action": "Capture pre-restart metrics",
+						"verify": "Connections, memory, CPU, error rate"
+					},
+					{
+						"step": 4,
+						"action": "Restart service",
+						"verify": "systemctl restart"
+					},
+					{
+						"step": 5,
+						"action": "Verify health check passes",
+						"verify": "Health endpoint returns 200 within timeout"
+					},
+					{
+						"step": 6,
+						"action": "Verify config changes applied",
+						"verify": "Expected behavior observable"
+					},
+					{
+						"step": 7,
+						"action": "Compare metrics post-restart",
+						"verify": "No anomalies vs baseline"
+					},
+					{
+						"step": 8,
+						"action": "Log action",
+						"verify": "Audit trail with who, what, when, why"
+					}
+				],
+				"abort_conditions": [
+					"Config invalid",
+					"Health check fails",
+					"Metrics anomaly"
+				]
+			},
+			{
+				"task_id": "service.stop",
+				"task_name": "Stop the service",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Check current connections",
+						"verify": "Active connections count"
+					},
+					{
+						"step": 2,
+						"action": "Disable incoming traffic",
+						"verify": "Remove from LB or block port"
+					},
+					{
+						"step": 3,
+						"action": "Wait for connections to drain",
+						"verify": "Connection count → 0 or timeout"
+					},
+					{
+						"step": 4,
+						"action": "Capture final state",
+						"verify": "Logs, metrics snapshot"
+					},
+					{
+						"step": 5,
+						"action": "Stop service",
+						"verify": "systemctl stop"
+					},
+					{
+						"step": 6,
+						"action": "Verify stopped",
+						"verify": "Process not running, port not listening"
+					},
+					{
+						"step": 7,
+						"action": "Log action",
+						"verify": "Audit trail"
+					}
+				],
+				"abort_conditions": [
+					"Critical connections still active",
+					"Dependent services affected"
+				]
+			},
+			{
+				"task_id": "service.start",
+				"task_name": "Start the service",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Check dependencies",
+						"verify": "DB, cache, upstream services available"
+					},
+					{
+						"step": 2,
+						"action": "Validate config",
+						"verify": "Config syntax valid"
+					},
+					{
+						"step": 3,
+						"action": "Check resources",
+						"verify": "Sufficient memory, disk, ports available"
+					},
+					{
+						"step": 4,
+						"action": "Start service",
+						"verify": "systemctl start"
+					},
+					{
+						"step": 5,
+						"action": "Verify process running",
+						"verify": "PID exists, port listening"
+					},
+					{
+						"step": 6,
+						"action": "Verify health check",
+						"verify": "Health endpoint returns 200"
+					},
+					{
+						"step": 7,
+						"action": "Enable traffic",
+						"verify": "Add to LB"
+					},
+					{
+						"step": 8,
+						"action": "Monitor initial metrics",
+						"verify": "No error spike"
+					},
+					{
+						"step": 9,
+						"action": "Log action",
+						"verify": "Audit trail"
+					}
+				],
+				"abort_conditions": [
+					"Dependencies unavailable",
+					"Insufficient resources",
+					"Health check fails"
+				]
+			},
+			{
+				"task_id": "service.health",
+				"task_name": "Check if service is healthy",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Check process status",
+						"verify": "Running, correct PID"
+					},
+					{
+						"step": 2,
+						"action": "Check port listening",
+						"verify": "Expected ports bound"
+					},
+					{
+						"step": 3,
+						"action": "Check health endpoint",
+						"verify": "HTTP 200, acceptable latency"
+					},
+					{
+						"step": 4,
+						"action": "Check recent logs",
+						"verify": "No ERROR/FATAL in last 5 min"
+					},
+					{
+						"step": 5,
+						"action": "Check key metrics",
+						"verify": "Error rate, latency within SLO"
+					},
+					{
+						"step": 6,
+						"action": "Check dependencies",
+						"verify": "Upstream/downstream connectivity"
+					},
+					{
+						"step": 7,
+						"action": "Report status",
+						"verify": "Healthy / Degraded / Unhealthy"
+					}
+				]
+			},
+			{
+				"task_id": "service.scale",
+				"task_name": "Scale service to N replicas",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Check current replica count",
+						"verify": "Document baseline"
+					},
+					{
+						"step": 2,
+						"action": "Check cluster resources",
+						"verify": "Sufficient CPU, memory"
+					},
+					{
+						"step": 3,
+						"action": "Check scaling limits",
+						"verify": "Within min/max bounds"
+					},
+					{
+						"step": 4,
+						"action": "Apply scaling",
+						"verify": "kubectl scale"
+					},
+					{
+						"step": 5,
+						"action": "Wait for replicas ready",
+						"verify": "All pods Running"
+					},
+					{
+						"step": 6,
+						"action": "Verify health checks",
+						"verify": "All replicas passing"
+					},
+					{
+						"step": 7,
+						"action": "Verify load distribution",
+						"verify": "Traffic balanced"
+					},
+					{
+						"step": 8,
+						"action": "Log action",
+						"verify": "Audit trail"
+					}
+				],
+				"abort_conditions": [
+					"Insufficient resources",
+					"Replicas failing to start"
+				]
+			},
+			{
+				"task_id": "service.rolling_restart",
+				"task_name": "Rolling restart all instances",
+				"steps": [
+					{
+						"step": 1,
+						"action": "List all instances",
+						"verify": "Instance list documented"
+					},
+					{
+						"step": 2,
+						"action": "Check minimum capacity",
+						"verify": "Enough instances to maintain service"
+					},
+					{
+						"step": 3,
+						"action": "Drain connections",
+						"verify": "Connection count → 0"
+					},
+					{
+						"step": 4,
+						"action": "Remove from load balancer",
+						"verify": "No new traffic"
+					},
+					{
+						"step": 5,
+						"action": "Restart instance",
+						"verify": "Service restarted"
+					},
+					{
+						"step": 6,
+						"action": "Verify health",
+						"verify": "Health check passes"
+					},
+					{
+						"step": 7,
+						"action": "Add back to load balancer",
+						"verify": "Receiving traffic"
+					},
+					{
+						"step": 8,
+						"action": "Wait for stabilization",
+						"verify": "Metrics normal for 30s"
+					},
+					{
+						"step": 9,
+						"action": "Verify all instances healthy",
+						"verify": "Full capacity restored"
+					},
+					{
+						"step": 10,
+						"action": "Compare before/after metrics",
+						"verify": "No degradation"
+					},
+					{
+						"step": 11,
+						"action": "Log action",
+						"verify": "Audit trail"
+					}
+				],
+				"abort_conditions": [
+					"Instance fails health check",
+					"Error rate spikes",
+					"Capacity drops below minimum"
+				]
+			},
+			{
+				"task_id": "service.deploy",
+				"task_name": "Deploy new version",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Validate deployment artifact",
+						"verify": "Image exists, signature valid"
+					},
+					{
+						"step": 2,
+						"action": "Check current version",
+						"verify": "Rollback target documented"
+					},
+					{
+						"step": 3,
+						"action": "Run pre-deploy checks",
+						"verify": "Migrations applied, dependencies ready"
+					},
+					{
+						"step": 4,
+						"action": "Deploy canary (10%)",
+						"verify": "Single instance with new version"
+					},
+					{
+						"step": 5,
+						"action": "Monitor canary",
+						"verify": "Error rate, latency stable for 5 min"
+					},
+					{
+						"step": 6,
+						"action": "Continue rollout",
+						"verify": "Gradual percentage increase"
+					},
+					{
+						"step": 7,
+						"action": "Monitor full rollout",
+						"verify": "Metrics comparable to baseline"
+					},
+					{
+						"step": 8,
+						"action": "Verify all instances on new version",
+						"verify": "Version consistency"
+					},
+					{
+						"step": 9,
+						"action": "Run smoke tests",
+						"verify": "Critical paths working"
+					},
+					{
+						"step": 10,
+						"action": "Log deployment",
+						"verify": "Audit trail with version, duration"
+					}
+				],
+				"abort_conditions": [
+					"Canary errors spike",
+					"Smoke tests fail"
+				]
+			},
+			{
+				"task_id": "service.rollback",
+				"task_name": "Rollback to previous version",
+				"steps": [
+					{
+						"step": 1,
+						"action": "Identify rollback target",
+						"verify": "Previous known-good version"
+					},
+					{
+						"step": 2,
+						"action": "Validate rollback target exists",
+						"verify": "Image/artifact available"
+					},
+					{
+						"step": 3,
+						"action": "Check for breaking changes",
+						"verify": "Migrations, schema changes reviewed"
+					},
+					{
+						"step": 4,
+						"action": "Announce rollback",
+						"verify": "Stakeholders notified"
+					},
+					{
+						"step": 5,
+						"action": "Execute rollback",
+						"verify": "Previous version applied"
+					},
+					{
+						"step": 6,
+						"action": "Monitor rollout",
+						"verify": "All instances updated"
+					},
+					{
+						"step": 7,
+						"action": "Verify health",
+						"verify": "Health checks passing"
+					},
+					{
+						"step": 8,
+						"action": "Verify functionality",
+						"verify": "Smoke tests pass"
+					},
+					{
+						"step": 9,
+						"action": "Compare metrics",
+						"verify": "Error rate returned to baseline"
+					},
+					{
+						"step": 10,
+						"action": "Log rollback",
+						"verify": "Audit trail with reason"
+					},
+					{
+						"step": 11,
+						"action": "Create incident ticket",
+						"verify": "Root cause investigation tracked"
+					}
+				],
+				"abort_conditions": [
+					"Rollback target unavailable",
+					"Rollback fails"
+				]
+			}
+		]
+	}
+]
