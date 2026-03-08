@@ -234,7 +234,7 @@ def create_app(
 
         # --- GOVERNANCE EVALUATION (inserted between auth and sanitization) ---
         if governance and body_json and has_tool_calls(body_json):
-            gov_response, eval_result = evaluate_governance(
+            gov_response, eval_result = await evaluate_governance(
                 governance, body_json, body, request, audit_logger,
                 return_eval_result=True,
             )

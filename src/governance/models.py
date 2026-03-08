@@ -11,7 +11,7 @@ This module defines all data models for the governance layer including:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
 
@@ -21,7 +21,8 @@ from src.models import RiskLevel, Severity
 
 # --- Enums ---
 
-
+# TODO: IntentCategory heuristic mapping — temporary mapping until
+# intent classification stabilizes against the finalized enum schema
 class IntentCategory(str, Enum):
     """Categories for classifying tool call intent."""
 
@@ -71,7 +72,260 @@ class PolicyEffect(str, Enum):
     REQUIRE_APPROVAL = "require_approval"
 
 
+class TrustLevel(str, Enum):
+    """User trust level."""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class DataSensitivity(str, Enum):
+    """Data classification for execution."""
+    PUBLIC = "public"
+    INTERNAL = "internal"
+    CONFIDENTIAL = "confidential"
+    REGULATED = "regulated"
+
+
+class ApprovalModel(str, Enum):
+    """Approval requirement model."""
+    NONE = "none"
+    SELF = "self"
+    PEER = "peer"
+    MANAGER = "manager"
+
+
+class OnFailBehavior(str, Enum):
+    """Step failure handling strategy."""
+    ABORT_PLAN = "abort_plan"
+    ABORT_STEP = "abort_step"
+    MARK_FAILED_AND_CONTINUE = "mark_failed_and_continue"
+    COMPLETE_WITH_WARNING = "complete_with_warning"
+
+
+class PatternType(str, Enum):
+    """Pattern matching type."""
+    EXACT = "exact"
+    GLOB = "glob"
+    REGEX = "regex"
+
+
+class ArgPatternType(str, Enum):
+    """Argument pattern matching type."""
+    EXACT = "exact"
+    GLOB = "glob"
+    REGEX = "regex"
+    RANGE = "range"
+
+
+class CheckFrequency(str, Enum):
+    """When to check abort conditions."""
+    BEFORE_EACH_STEP = "before_each_step"
+    AFTER_EACH_STEP = "after_each_step"
+    CONTINUOUS = "continuous"
 # --- Core Models ---
+
+
+class FiveWOneH(BaseModel):
+    """Structured intent breakdown."""
+    model_config = ConfigDict(frozen=True)
+
+    who: str | None = Field(None, description="Who/what executes (user, system, tool).")
+    what: str | None = Field(None, description="Concrete operation being performed.")
+    where: str | None = Field(None, description="Execution surface (path, service, environment).")
+    when: str | None = Field(None, description="Timing (immediate, scheduled, conditional).")
+    why: str | None = Field(None, description="User-facing reason.")
+    how: str | None = Field(None, description="High-level method.")
+
+
+class SurfaceEffects(BaseModel):
+    """What resources are touched/modified/created/deleted."""
+    model_config = ConfigDict(frozen=True)
+
+    touches: list[str] = Field(..., min_length=1, description="Resources accessed.")
+    modifies: bool = Field(..., description="Whether existing resources are modified.")
+    creates: bool = Field(..., description="Whether new resources are created.")
+    deletes: bool = Field(..., description="Whether resources are deleted.")
+
+
+class Scope(BaseModel):
+    """Hard scoping of where execution may touch."""
+    model_config = ConfigDict(frozen=True)
+
+    target_system: str = Field(..., description="Primary system (kubernetes, database, etc.).")
+    environment: str = Field(..., description="Environment scope (prod, staging, dev).")
+    allowed_systems: list[str] = Field(default_factory=list)
+    forbidden_systems: list[str] = Field(default_factory=list)
+
+
+class RequireApproval(BaseModel):
+    """Approval requirements."""
+    model_config = ConfigDict(frozen=True)
+
+    model: ApprovalModel = ApprovalModel.NONE
+    incident_reference_required: bool = False
+    ticket_reference_required: bool = False
+
+
+class Pattern(BaseModel):
+    """Pattern for matching commands/paths/urls."""
+    model_config = ConfigDict(frozen=True)
+
+    pattern: str
+    type: PatternType = PatternType.GLOB
+
+
+class ArgPattern(BaseModel):
+    """Pattern for matching arguments."""
+    model_config = ConfigDict(frozen=True)
+
+    pattern: str | None = None
+    type: ArgPatternType = ArgPatternType.EXACT
+    min: float | None = None
+    max: float | None = None
+
+
+class AllowDenyPatterns(BaseModel):
+    """Allow/deny patterns for commands, paths, urls, args."""
+    model_config = ConfigDict(frozen=True)
+
+    commands: list[Pattern] = Field(default_factory=list)
+    paths: list[Pattern] = Field(default_factory=list)
+    urls: list[Pattern] = Field(default_factory=list)
+    args: dict[str, str | list[str] | ArgPattern] = Field(default_factory=dict)
+
+
+class Invariants(BaseModel):
+    """Global invariants and refusal conditions."""
+    model_config = ConfigDict(frozen=True)
+
+    must_hold: list[str] = Field(default_factory=list, description="Must remain true during execution.")
+    preconditions: list[str] = Field(default_factory=list, description="Must be true before execution.")
+    refusal_conditions: list[str] = Field(default_factory=list, description="Causes executor to refuse.")
+
+
+class InputSpec(BaseModel):
+    """Input specification for a step."""
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    type: str = Field(..., pattern="^(string|integer|number|boolean|array|object)$")
+    source: str | None = Field(None, description="Where to obtain (ticket, previous_step, etc.).")
+    constraints: dict[str, Any] = Field(default_factory=dict)
+
+
+class CheckSpec(BaseModel):
+    """Verification check for a step."""
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    evidence: str = Field(..., description="What is observed.")
+    pass_condition: str = Field(..., description="Deterministic condition.")
+
+
+class StepInputs(BaseModel):
+    """Required and optional inputs for a step."""
+    model_config = ConfigDict(frozen=True)
+
+    required: list[InputSpec] = Field(default_factory=list)
+    optional: list[InputSpec] = Field(default_factory=list)
+
+
+class AbortCondition(BaseModel):
+    """Condition that triggers immediate plan termination."""
+    model_config = ConfigDict(frozen=True)
+
+    condition: str = Field(..., description="Machine-checkable condition expression.")
+    reason: str = Field(..., description="Human-readable reason for audit.")
+    check_frequency: CheckFrequency = CheckFrequency.BEFORE_EACH_STEP
+
+
+class Metadata(BaseModel):
+    """Non-execution metadata for audit and QA."""
+    model_config = ConfigDict(frozen=True)
+
+    generated_by: str | None = None
+    quality_score: int | None = Field(None, ge=0, le=100)
+    source_context_ref: str | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class StepDo(BaseModel):
+    """The actual operation to perform."""
+    model_config = ConfigDict(frozen=True)
+
+    tool: str = Field(..., description="Tool name (exec, read, write, http, k8s, etc.).")
+    operation: str = Field(..., description="Operation type within the tool.")
+    target: str | None = Field(None, description="Target resource.")
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    parameter_schema: StepInputs | None = None
+    allow: AllowDenyPatterns | None = None
+    deny: AllowDenyPatterns | None = None
+
+
+class StepVerify(BaseModel):
+    """How to verify step success."""
+    model_config = ConfigDict(frozen=True)
+
+    checks: list[CheckSpec] = Field(..., min_length=1)
+
+
+class StepOnFail(BaseModel):
+    """What to do if step fails."""
+    model_config = ConfigDict(frozen=True)
+
+    behavior: OnFailBehavior
+    refuse_if: list[str] = Field(default_factory=list)
+    required_log_entries: list[str] = Field(default_factory=list)
+
+
+class StepAudit(BaseModel):
+    """What to record from this step."""
+    model_config = ConfigDict(frozen=True)
+
+    record_outputs: list[OutputSpec] = Field(default_factory=list)
+
+
+class OutputSpec(BaseModel):
+    """Output specification for a step."""
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    type: str = Field(..., pattern="^(string|integer|number|boolean|array|object)$")
+    write_to: str | None = Field(None, description="Destination (log, ticket, etc.).")
+    constraints: dict[str, Any] = Field(default_factory=dict)
+
+
+class Constraints(BaseModel):
+    """Hard execution limits. Executor MUST enforce these."""
+    model_config = ConfigDict(frozen=True)
+
+    allow_unplanned: bool = Field(False, const=True, description="Must be false.")
+    max_total_operations: int = Field(50, ge=1, description="Hard cap on total operations.")
+    max_duration_ms: int = Field(300000, ge=1000, description="Plan execution timeout.")
+    require_sequential: bool = Field(False, description="Force sequential execution.")
+    max_parallelism: int = Field(1, ge=1, description="Max concurrent steps.")
+    forbidden_paths: list[str] = Field(default_factory=list)
+    forbidden_commands: list[str] = Field(default_factory=list)
+    forbidden_urls: list[str] = Field(default_factory=list)
+    allow: AllowDenyPatterns | None = None
+    deny: AllowDenyPatterns | None = None
+    data_sensitivity: DataSensitivity | None = None
+    require_approval: RequireApproval = Field(default_factory=RequireApproval)
+
+
+class UserContext(BaseModel):
+    """Who is requesting/initiating execution."""
+    model_config = ConfigDict(frozen=True)
+
+    actor_id: str | None = Field(None, description="Authenticated user/service identifier.")
+    role: str | None = Field(None, description="Role name used for policy routing.")
+    trust_level: TrustLevel | None = None
+    team: str | None = None
+    access_tier: str | None = Field(None, description="Access tier (e.g., prod-read, prod-admin).")
+    domain: str | None = Field(None, description="Domain ownership context.")
+    oncall: bool | None = None
+
 
 
 class ToolCall(BaseModel):
@@ -100,7 +354,10 @@ class Intent(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    primary_category: IntentCategory
+    summary: str = Field(..., min_length=10, description="Human-readable description.")
+    primary_category: IntentCategory = Field(..., description="Primary operation type.")
+    user_message: str | None = Field(None, min_length=1, description="Original user request.")
+    five_w_one_h: FiveWOneH = Field(default_factory=FiveWOneH)
     signals: list[IntentSignal]
     tool_calls: list[ToolCall]
     confidence: float = Field(ge=0.0, le=1.0)
@@ -388,6 +645,24 @@ class ExecutionState(BaseModel):
         return (self.completed_steps / self.total_steps) * 100
 
 
+class Step(BaseModel):
+    """A single executable step."""
+    model_config = ConfigDict(frozen=True)
+
+    step: int = Field(..., ge=1, description="Step number.")
+    action: str = Field(..., min_length=3, description="Human-readable action label.")
+    depends_on: list[int] = Field(default_factory=list, description="Steps that must complete first.")
+    parallel: bool = Field(False, description="Can run concurrently.")
+    max_invocations: int = Field(1, ge=1, description="Max times step can execute.")
+    timeout_ms: int | None = Field(None, ge=1, description="Step-specific timeout.")
+    requires_confirmation: bool = Field(False, description="Requires human confirmation.")
+    inputs: StepInputs = Field(default_factory=StepInputs)
+    do: StepDo
+    verify: StepVerify
+    on_fail: StepOnFail
+    audit: StepAudit = Field(default_factory=StepAudit)
+
+
 class EnhancedExecutionPlan(BaseModel):
     """Execution plan enhanced with LLM-generated operational knowledge.
 
@@ -409,21 +684,34 @@ class EnhancedExecutionPlan(BaseModel):
     # Base plan (immutable spec)
     base_plan: ExecutionPlan
 
-    # LLM-generated enhancements
-    description: str | None = None
-    constraints: list[str] = Field(default_factory=list)
-    preferences: list[str] = Field(default_factory=list)
-    recovery_paths: list[RecoveryPath] = Field(default_factory=list)
-    conditionals: list[ConditionalBranch] = Field(default_factory=list)
-    execution_mode: ExecutionMode = ExecutionMode.GOVERNANCE_DRIVEN
+    # System-generated
+    version: str = Field("1.0.0", const=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    expires_at: datetime | None = Field(default_factory=lambda: datetime.now(UTC) + timedelta(hours=4))
+    execution_mode: ExecutionMode
 
-    # Schema-derived fields
-    operations: list[dict[str, Any]] = Field(default_factory=list)
-    global_constraints: dict[str, Any] = Field(default_factory=dict)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    # Human-readable
+    id: str | None = Field(None, pattern=r"^[a-z0-9_]+\.[a-z0-9_]+$", description="Plan type identifier.")
+    description_for_user: str = Field(..., min_length=10)
+
+    # LLM-generated
+    intent: Intent
+    surface_effects: SurfaceEffects
+    steps: list[Step] = Field(..., min_length=1)
+    abort_conditions: list[AbortCondition] = Field(..., min_length=1)
+
+    # Inherited/Injected
+    user_context: UserContext | None = None
+    scope: Scope | None = None
+    constraints: Constraints = Field(default_factory=Constraints)
+    invariants: Invariants | None = None
+
+    # Metadata
+    metadata: Metadata | None = None
 
     # Runtime state (initialized when execution starts)
     state: ExecutionState | None = None
+
 
     # Convenience accessors
     @property
@@ -433,10 +721,6 @@ class EnhancedExecutionPlan(BaseModel):
     @property
     def session_id(self) -> str | None:
         return self.base_plan.session_id
-
-    @property
-    def actions(self) -> list[PlannedAction]:
-        return self.base_plan.actions
 
     @property
     def risk_assessment(self) -> RiskAssessment:
@@ -468,6 +752,7 @@ class EnhancedExecutionPlan(BaseModel):
             context=context,
             current_sequence=0,
             status=StepStatus.PENDING,
-            total_steps=len(self.actions),
+            total_steps=len(self.steps),
             started_at=datetime.now(UTC).isoformat(),
         )
+

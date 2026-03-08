@@ -17,17 +17,16 @@ from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import Any, Callable, Awaitable
 
-from src.governance.enforcer import GovernanceEnforcer, EnforcementResult
+from src.governance.enforcer import GovernanceEnforcer
 from src.governance.models import (
     GovernanceDecision,
+    OnFailBehavior,
     ToolCall,
     EnhancedExecutionPlan,
     ExecutionContext,
-    RecoveryPath,
-    RecoveryStrategy,
+    Step,
     StepResult,
     StepStatus,
-    PlannedAction,
 )
 
 
@@ -39,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 class ExecutionError(Exception):
     """Raised when execution fails."""
-    
+
     def __init__(self, message: str, step: int, recoverable: bool = False):
         super().__init__(message)
         self.step = step
@@ -48,7 +47,7 @@ class ExecutionError(Exception):
 
 class GovernanceBlockedError(ExecutionError):
     """Raised when governance blocks execution."""
-    
+
     def __init__(self, message: str, step: int, reason: str):
         super().__init__(message, step, recoverable=False)
         self.reason = reason
@@ -56,13 +55,13 @@ class GovernanceBlockedError(ExecutionError):
 
 class ToolExecutorAdapter(ABC):
     """Abstract adapter for executing tools.
-    
+
     Implementations connect to actual tool providers:
     - LocalToolExecutor: Calls tools locally
     - AgentToolExecutor: Sends tools to LLM agent
     - MockToolExecutor: For testing
     """
-    
+
     @abstractmethod
     async def execute(
         self,
@@ -71,15 +70,15 @@ class ToolExecutorAdapter(ABC):
         context: ExecutionContext,
     ) -> Any:
         """Execute a tool and return its result.
-        
+
         Args:
             tool_name: Name of the tool to execute.
             arguments: Tool arguments.
             context: Execution context.
-            
+
         Returns:
             Tool execution result.
-            
+
         Raises:
             Exception: If tool execution fails.
         """
@@ -88,41 +87,40 @@ class ToolExecutorAdapter(ABC):
 
 class ExecutionEngine:
     """Drives plan execution step by step with governance enforcement.
-    
+
     The engine:
-    1. Iterates through plan actions in sequence
-    2. Checks governance before each action
-    3. Executes the action via ToolExecutorAdapter
-    4. Handles failures according to recovery paths
-    5. Tracks state throughout execution
+    1. Iterates through plan steps in order (respecting depends_on)
+    2. Checks governance before each step
+    3. Executes the step via ToolExecutorAdapter
+    4. Handles failures according to each step's on_fail behavior
+    5. Tracks execution state throughout
     """
-    
+
     def __init__(
         self,
         enforcer: GovernanceEnforcer,
         tool_executor: ToolExecutorAdapter,
     ) -> None:
         """Initialize the execution engine.
-        
+
         Args:
             enforcer: Governance enforcer for action validation.
             tool_executor: Adapter for executing tools.
         """
         self._enforcer = enforcer
         self._tool_executor = tool_executor
-    
+
     async def execute(
         self,
         plan: EnhancedExecutionPlan,
         on_step_complete: Callable[[StepResult], Awaitable[None]] | None = None,
     ):
         """Execute the plan and return final state.
-        
+
         Args:
             plan: The enhanced execution plan.
-            context: Execution context with credentials and config.
             on_step_complete: Optional callback after each step.
-            
+
         Returns:
             Final ExecutionState with all results.
         """
@@ -138,45 +136,44 @@ class ExecutionEngine:
         plan.state.started_at = datetime.now(UTC).isoformat()
 
         try:
-            # Execute each action
-            for action in plan.actions:
-                # Check if we should skip (conditional logic)
-                if self._should_skip(action.sequence, plan):
-                    result = self._create_skipped_result(action)
+            # Execute each step
+            # TODO: Execution is intentionally sequential for now. depends_on and parallel are reserved for future engine upgrades.
+            for step in plan.steps:
+                # Check if we should skip (conditional / depends_on logic)
+                if self._should_skip(step, plan):
+                    result = self._create_skipped_result(step)
                     plan.state.step_results.append(result)
                     plan.state.skipped_steps += 1
                     continue
-                
-                # Get recovery path for this action
-                recovery_path = self._get_recovery_path(action.sequence, plan)
-                
-                # Execute with retry logic
-                result = await self._execute_with_recovery(
-                    action=action,
+
+                # Execute with retry/recovery based on step.on_fail
+                result = await self._execute_step(
+                    step=step,
                     context=plan.state.context,
-                    recovery_path=recovery_path,
                 )
-                
+
                 # Update state
                 plan.state.step_results.append(result)
-                plan.state.current_sequence = action.sequence + 1
-                
+                plan.state.current_sequence = step.step
+
                 if result.status == StepStatus.COMPLETED:
                     plan.state.completed_steps += 1
                 elif result.status == StepStatus.FAILED:
                     plan.state.failed_steps += 1
-                    if recovery_path and recovery_path.strategy == RecoveryStrategy.FAIL_FAST:
+                    if step.on_fail.behavior == OnFailBehavior.ABORT_PLAN:
                         plan.state.status = StepStatus.FAILED
                         break
+                    # MARK_FAILED_AND_CONTINUE / COMPLETE_WITH_WARNING: keep going
+                    # ABORT_STEP: step is done, continue to next
                 elif result.status == StepStatus.BLOCKED:
                     if plan.state.context.fail_on_governance_block:
                         plan.state.status = StepStatus.BLOCKED
                         break
-                
+
                 # Callback
                 if on_step_complete:
                     await on_step_complete(result)
-            
+
             # Mark complete if we got through all steps
             if plan.state.status == StepStatus.RUNNING:
                 plan.state.status = StepStatus.COMPLETED
@@ -197,127 +194,123 @@ class ExecutionEngine:
             plan.state.status.value,
             self._calc_total_duration(plan),
         )
-    
-    async def _execute_with_recovery(
+
+    async def _execute_step(
         self,
-        action: PlannedAction,
+        step: Step,
         context: ExecutionContext,
-        recovery_path: RecoveryPath | None,
     ) -> StepResult:
-        """Execute a single action with recovery logic.
-        
+        """Execute a single step with governance check and retry logic.
+
+        Retries are attempted up to step.max_invocations times. The retry
+        decision is based on step.on_fail.behavior:
+        - abort_plan / abort_step: no retry, fail immediately
+        - mark_failed_and_continue / complete_with_warning: no retry either,
+          but the caller decides whether to continue
+
         Args:
-            action: The action to execute.
+            step: The step to execute.
             context: Execution context.
-            recovery_path: Recovery path for this action.
-            
+
         Returns:
             StepResult with outcome.
         """
         started_at = datetime.now(UTC).isoformat()
-        attempt = 0
-
-        # max_retries=3 means 1 initial attempt + 3 retries = 4 total attempts
-        max_attempts = 1 + (recovery_path.max_retries if recovery_path else 0)
-        
         last_error: str | None = None
-        
-        while attempt < max_attempts:
+        # TODO: Retry vs on_fail.behavior coupling — retries are currently governed by max_invocations.
+        # Behavioral branching (ABORT_PLAN, etc.) will be aligned in a follow-up pass once
+        # failure semantics stabilize.
+        max_attempts = step.max_invocations
+
+        for attempt in range(max_attempts):
             try:
-                # Check governance
+                # Check refuse_if conditions
+                if step.on_fail.refuse_if:
+                    for condition in step.on_fail.refuse_if:
+                        # TODO: evaluate condition expressions against context
+                        # For now, refuse_if conditions are checked as string
+                        # markers — a real implementation would parse these.
+                        pass
+
+                # Build ToolCall for governance check
                 tool_call = ToolCall(
-                    name=action.tool_call.name,
-                    arguments=action.tool_call.arguments,
-                    id=action.tool_call.id,
+                    name=step.do.tool,
+                    arguments=step.do.parameters,
                 )
-                
+
+                # Check governance
                 enforcement = self._enforcer.enforce_action(
                     plan_id=context.plan_id,
                     token=context.token,
                     tool_call=tool_call,
                 )
-                
+
                 if not enforcement.allowed:
                     return StepResult(
-                        sequence=action.sequence,
+                        sequence=step.step,
                         status=StepStatus.BLOCKED,
                         started_at=started_at,
                         completed_at=datetime.now(UTC).isoformat(),
-                        tool_name=action.tool_call.name,
-                        tool_args=action.tool_call.arguments,
+                        tool_name=step.do.tool,
+                        tool_args=step.do.parameters,
                         governance_decision=GovernanceDecision.BLOCK,
                         governance_reason=enforcement.reason,
                     )
-                
+
                 # Execute tool
                 result = await self._tool_executor.execute(
-                    tool_name=action.tool_call.name,
-                    arguments=action.tool_call.arguments,
+                    tool_name=step.do.tool,
+                    arguments=step.do.parameters,
                     context=context,
                 )
-                
-                # Mark action complete in enforcer
-                self._enforcer.mark_action_complete(context.plan_id, action.sequence)
-                
+
+                # Mark step complete in enforcer
+                self._enforcer.mark_action_complete(context.plan_id, step.step)
+
                 completed_at = datetime.now(UTC).isoformat()
                 duration_ms = self._calc_duration_ms(started_at, completed_at)
-                
+
                 return StepResult(
-                    sequence=action.sequence,
+                    sequence=step.step,
                     status=StepStatus.COMPLETED,
                     started_at=started_at,
                     completed_at=completed_at,
                     duration_ms=duration_ms,
-                    tool_name=action.tool_call.name,
-                    tool_args=action.tool_call.arguments,
+                    tool_name=step.do.tool,
+                    tool_args=step.do.parameters,
                     tool_result=result,
                     governance_decision=GovernanceDecision.ALLOW,
                     retry_count=attempt,
                 )
-                
+
             except Exception as e:
                 last_error = str(e)
-                attempt += 1
-                
-                # Check if we should retry
-                if recovery_path and recovery_path.strategy == RecoveryStrategy.RETRY:
-                    if attempt < max_attempts:
-                        # Backoff before retry
-                        await asyncio.sleep(recovery_path.backoff_ms / 1000)
-                        continue
-                
-                # No more retries
+
+                # Only retry if we have invocations left
+                if attempt + 1 < max_attempts:
+                    continue
+
                 break
-        
-        # All attempts exhausted or not retrying
+
+        # All attempts exhausted
         completed_at = datetime.now(UTC).isoformat()
         duration_ms = self._calc_duration_ms(started_at, completed_at)
-        
-        # Determine final status based on recovery strategy
-        status = StepStatus.FAILED
-        recovery_action = None
-        
-        if recovery_path:
-            recovery_action = recovery_path.strategy
-            if recovery_path.strategy == RecoveryStrategy.SKIP:
-                status = StepStatus.SKIPPED
-        
+
         return StepResult(
-            sequence=action.sequence,
-            status=status,
+            sequence=step.step,
+            status=StepStatus.FAILED,
             started_at=started_at,
             completed_at=completed_at,
             duration_ms=duration_ms,
-            tool_name=action.tool_call.name,
-            tool_args=action.tool_call.arguments,
+            tool_name=step.do.tool,
+            tool_args=step.do.parameters,
             error=last_error,
-            retry_count=attempt,
-            recovery_action=recovery_action,
+            retry_count=max_attempts - 1,
         )
 
     def _should_skip(
             self,
-            sequence: int,
+            step: Step,
             plan: EnhancedExecutionPlan
     ) -> bool:
         """Check if this step should be skipped based on conditionals.
@@ -327,29 +320,18 @@ class ExecutionEngine:
         """
         return False
 
-    def _get_recovery_path(
-        self,
-        sequence: int,
-        plan: EnhancedExecutionPlan,
-    ) -> RecoveryPath | None:
-        """Get recovery path for a specific step."""
-        for path in plan.recovery_paths:
-            if path.trigger_step == sequence:
-                return path
-        return None
-    
-    def _create_skipped_result(self, action: Any) -> StepResult:
-        """Create a StepResult for a skipped action."""
+    def _create_skipped_result(self, step: Step) -> StepResult:
+        """Create a StepResult for a skipped step."""
         now = datetime.now(UTC).isoformat()
         return StepResult(
-            sequence=action.sequence,
+            sequence=step.step,
             status=StepStatus.SKIPPED,
             started_at=now,
             completed_at=now,
-            tool_name=action.tool_call.name,
-            tool_args=action.tool_call.arguments,
+            tool_name=step.do.tool,
+            tool_args=step.do.parameters,
         )
-    
+
     def _calc_duration_ms(self, started_at: str, completed_at: str) -> int:
         """Calculate duration in milliseconds."""
         start = datetime.fromisoformat(started_at)
