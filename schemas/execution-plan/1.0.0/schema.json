@@ -50,10 +50,11 @@
 		"execution_mode": {
 			"type": "string",
 			"enum": [
-				"preview",
-				"execute"
+				"governance_driven",
+				"agent_guided",
+				"hybrid"
 			],
-			"description": "Whether this plan is only previewed or actually executed."
+			"description": "How the plan should be executed."
 		},
 		"description_for_user": {
 			"type": "string",
@@ -98,7 +99,6 @@
 			"required": [
 				"summary",
 				"category",
-				"risk_level",
 				"five_w_one_h"
 			],
 			"additionalProperties": false,
@@ -119,16 +119,6 @@
 						"mixed"
 					],
 					"description": "Primary operation type for routing and approval."
-				},
-				"risk_level": {
-					"type": "string",
-					"enum": [
-						"low",
-						"medium",
-						"high",
-						"critical"
-					],
-					"description": "Assessed risk for approval routing."
 				},
 				"user_message": {
 					"type": "string",

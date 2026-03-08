@@ -10,8 +10,6 @@ This module provides the Executor class that:
 
 from __future__ import annotations
 
-from typing import Any
-
 from src.execution.engine import ExecutionEngine, ToolExecutorAdapter
 from src.execution.injected_context import AgentContextInjector
 from src.governance.enforcer import GovernanceEnforcer

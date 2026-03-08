@@ -195,7 +195,7 @@ class WebhookRelayPipeline:
                     **message.metadata,
                 },
             }
-            gov_result = self._governance.evaluate(
+            gov_result = await self._governance.evaluate(
                 gov_body, None, message.sender_id,
             )
             if self._audit:
