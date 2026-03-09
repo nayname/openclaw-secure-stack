@@ -2,6 +2,8 @@
 
 A machine-enforceable execution plan for deterministic, non-LLM execution.
 
+This schema is not yet used by PlanGenerator
+
 ## Purpose
 
 This schema defines the **single source of truth** for what an agent executor will perform. The plan is:

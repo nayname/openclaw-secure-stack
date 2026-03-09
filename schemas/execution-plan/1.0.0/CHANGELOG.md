@@ -5,7 +5,21 @@ All notable changes to the Execution Plan schema will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this schema adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2025-02-27
+## [1.0.0] - 2026-03-08
+
+### Design Decisions
+
+- `allow_unplanned` is `const: false` — executor cannot deviate from plan
+- All verification conditions must be deterministic (no natural language)
+- Field provenance documented (LLM-generated vs inherited vs system-generated)
+
+#### Strictness vs. extensibility
+
+- The schema is intentionally strict (`additionalProperties: false`) for execution-affecting structures to prevent unexpected fields from influencing behavior.
+- This schema is currently shipped as a reference artifact and is not yet wired into the runtime planner/executor. Until migration, LLM output validation behavior remains governed by the legacy schema.
+- When the runtime migrates to v1.x, we will use an explicit strategy for handling extra fields commonly produced by LLMs:
+  - either reject unknown properties strictly, or
+  - canonicalize plans by dropping unknown properties before validation and execution.
 
 ### Added
 

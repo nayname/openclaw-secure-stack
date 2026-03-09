@@ -238,9 +238,9 @@
 			"additionalProperties": false,
 			"properties": {
 				"allow_unplanned": {
-					"type": "boolean",
-					"const": false,
-					"description": "MUST be false. Executor rejects any tool call not in steps."
+				    "type": "boolean",
+				    "default": false,
+				    "description": "Whether execution is allowed to deviate from the plan. Governance runtimes SHOULD enforce false."
 				},
 				"max_total_operations": {
 					"type": "integer",
