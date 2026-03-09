@@ -150,9 +150,18 @@ These may have base values from policy, with LLM additions:
 ## Key Concepts
 
 ### Execution Mode
+ 
+`execution_mode` specifies how the execution engine interacts with the plan.
 
-- `preview` — Validate and render only, no side effects
-- `execute` — Perform the actual operations
+Allowed values:
+
+| Mode | Description |
+|-----|-------------|
+| `governance_driven` | The executor strictly follows the plan. No agent decisions are allowed during execution. |
+| `agent_guided` | The agent may participate during execution but must stay within the plan's constraints. |
+| `hybrid` | Governance executor orchestrates execution while allowing limited agent participation. |
+
+Most production environments should use `governance_driven`.
 
 ### Constraints
 

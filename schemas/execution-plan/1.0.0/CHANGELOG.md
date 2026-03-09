@@ -15,7 +15,15 @@ Initial stable release.
 - `version` — Schema version (const "1.0.0")
 - `plan_id` — UUID for binding and audit
 - `created_at` — Plan creation timestamp
-- `execution_mode` — "preview" or "execute"
+- `execution_mode` — execution strategy for the plan
+
+    Allowed values:
+
+  - `governance_driven` — execution strictly controlled by the governance executor
+  - `agent_guided` — execution performed by an LLM agent but constrained by the plan
+  - `hybrid` — governance executor orchestrates execution with limited agent participation
+
+
 - `description_for_user` — User-facing confirmation text
 - `surface_effects` — What resources are touched/modified/created/deleted
 - `intent` — Summary, category, risk_level, five_w_one_h
