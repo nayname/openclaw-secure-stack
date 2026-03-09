@@ -34,6 +34,7 @@ from src.governance.models import (
     FiveWOneH,
     InputSpec,
     Intent,
+    EnhancedIntent,
     IntentCategory,
     Invariants,
     Metadata,
@@ -345,7 +346,7 @@ class PlanGenerator:
             ) from e
 
         # Build EnhancedExecutionPlan from base plan + LLM output
-        return self._build_enhanced_plan(plan, enhanced_dict, local_context=local_context)
+        return self._build_enhanced_plan(plan, enhanced_dict, user_message, local_context=local_context)
 
     # ------------------------------------------------------------------
     # LLM response handling
@@ -429,6 +430,7 @@ class PlanGenerator:
             self,
             base_plan: ExecutionPlan,
             llm_output: dict[str, Any],
+            user_message: str | None,
             local_context: LocalContext | None = None,
     ) -> EnhancedExecutionPlan:
         """Build EnhancedExecutionPlan from base plan and validated LLM output.
@@ -460,7 +462,7 @@ class PlanGenerator:
         )
 
         # --- LLM-generated fields ---
-        intent = self._parse_intent(llm_output.get("intent", {}))
+        intent = self._parse_intent(llm_output.get("intent", {}), user_message)
         surface_effects = self._parse_surface_effects(
             llm_output.get("surface_effects", {})
         )
@@ -529,7 +531,7 @@ class PlanGenerator:
     # Parsers: LLM output dict → Pydantic models
     # ------------------------------------------------------------------
 
-    def _parse_intent(self, data: dict[str, Any]) -> Intent:
+    def _parse_intent(self, data: dict[str, Any], user_message: str | None) -> EnhancedIntent:
         """Parse Intent from LLM output conforming to schema.json."""
         five_w = data.get("five_w_one_h", {})
         five_w_one_h = FiveWOneH(
@@ -555,10 +557,10 @@ class PlanGenerator:
         raw_category = data.get("category", "mixed")
         primary_category = category_map.get(raw_category, IntentCategory.UNKNOWN)
 
-        return Intent(
+        return EnhancedIntent(
             summary=data.get("summary", ""),
             primary_category=primary_category,
-            user_message=data.get("user_message"),
+            user_message=user_message,
             five_w_one_h=five_w_one_h,
             signals=[],  # Not produced by schema-driven LLM output
             tool_calls=[],  # Comes from base plan, not LLM
@@ -601,6 +603,10 @@ class PlanGenerator:
             )
 
             do_data = s.get("do", {})
+            if not isinstance(do_data, dict):
+                raise ValueError(
+                    f"Step {s.get('step')}: 'do' must be an object, got {type(do_data).__name__}"
+                )
             step_do = StepDo(
                 tool=do_data.get("tool", ""),
                 operation=do_data.get("operation", ""),

@@ -266,7 +266,7 @@ class GovernanceMiddleware:
         session_id: str | None,
         user_id: str,
         token: str,
-        request_body: dict[str, Any],
+        request_body: dict[str, Any] | None,
     ) -> EnhancedExecutionPlan | None:
         """Create an enhanced plan from a basic plan.
 
@@ -275,10 +275,14 @@ class GovernanceMiddleware:
             session_id: Session ID.
             user_id: User ID.
             token: Plan token.
+            request_body: user request
 
         Returns:
             EnhancedExecutionPlan if successful, None if enhancement fails.
         """
+        if request_body is None:
+            raise ValueError("request_body is required to generate enhanced plan")
+
         try:
             # Enhance with LLM
             enhanced_plan = self._planner.enhance(

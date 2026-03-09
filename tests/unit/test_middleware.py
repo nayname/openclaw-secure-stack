@@ -105,7 +105,7 @@ class TestMiddlewareInit:
         )
         assert mw is not None
 
-    def test_disabled_middleware_allows_all(
+    async def test_disabled_middleware_allows_all(
         self, governance_db_path, secret, policy_path, patterns_path
     ):
         from src.governance.middleware import GovernanceMiddleware
@@ -120,7 +120,7 @@ class TestMiddlewareInit:
             settings=settings,
         )
 
-        result = mw.evaluate(
+        result = await mw.evaluate(
             request_body={"tools": [{"type": "function", "function": {"name": "delete_file"}}]},
             session_id=None,
             user_id="user-1",
@@ -129,10 +129,10 @@ class TestMiddlewareInit:
 
 
 class TestEvaluate:
-    def test_blocked_action_returns_block(self, middleware):
+    async def test_blocked_action_returns_block(self, middleware):
         from src.governance.models import GovernanceDecision
 
-        result = middleware.evaluate(
+        result = await middleware.evaluate(
             request_body={
                 "tools": [{"type": "function", "function": {"name": "delete_file", "arguments": {"path": "/tmp/file"}}}]
             },
@@ -142,10 +142,10 @@ class TestEvaluate:
         assert result.decision == GovernanceDecision.BLOCK
         assert len(result.violations) > 0
 
-    def test_allowed_action_returns_allow(self, middleware):
+    async def test_allowed_action_returns_allow(self, middleware):
         from src.governance.models import GovernanceDecision
 
-        result = middleware.evaluate(
+        result = await middleware.evaluate(
             request_body={
                 "tools": [{"type": "function", "function": {"name": "read_file", "arguments": {"path": "/tmp/safe.txt"}}}]
             },
@@ -154,10 +154,10 @@ class TestEvaluate:
         )
         assert result.decision == GovernanceDecision.ALLOW
 
-    def test_requires_approval_for_code_execution(self, middleware):
+    async def test_requires_approval_for_code_execution(self, middleware):
         from src.governance.models import GovernanceDecision
 
-        result = middleware.evaluate(
+        result = await middleware.evaluate(
             request_body={
                 "tools": [{"type": "function", "function": {"name": "execute_code", "arguments": {"code": "print('hi')"}}}]
             },
@@ -169,8 +169,8 @@ class TestEvaluate:
 
 
 class TestPlanGeneration:
-    def test_generates_plan_for_allowed_request(self, middleware):
-        result = middleware.evaluate(
+    async def test_generates_plan_for_allowed_request(self, middleware):
+        result = await middleware.evaluate(
             request_body={
                 "tools": [{"type": "function", "function": {"name": "read_file", "arguments": {"path": "/tmp/test.txt"}}}]
             },
@@ -180,8 +180,8 @@ class TestPlanGeneration:
         assert result.plan_id is not None
         assert result.token is not None
 
-    def test_plan_includes_session_binding(self, middleware):
-        result = middleware.evaluate(
+    async def test_plan_includes_session_binding(self, middleware):
+        result = await middleware.evaluate(
             request_body={
                 "tools": [{"type": "function", "function": {"name": "read_file", "arguments": {"path": "/tmp/test.txt"}}}]
             },
@@ -193,8 +193,8 @@ class TestPlanGeneration:
 
 
 class TestApprovalFlow:
-    def test_creates_approval_for_risky_action(self, middleware):
-        result = middleware.evaluate(
+    async def test_creates_approval_for_risky_action(self, middleware):
+        result = await middleware.evaluate(
             request_body={
                 "tools": [{"type": "function", "function": {"name": "execute_code", "arguments": {"code": "rm -rf /"}}}]
             },
@@ -203,10 +203,10 @@ class TestApprovalFlow:
         )
         assert result.approval_id is not None
 
-    def test_stores_original_request_for_retry(self, middleware):
+    async def test_stores_original_request_for_retry(self, middleware):
         from src.governance.models import GovernanceDecision
 
-        result = middleware.evaluate(
+        result = await middleware.evaluate(
             request_body={
                 "tools": [{"type": "function", "function": {"name": "execute_code", "arguments": {"code": "test"}}}]
             },
@@ -222,11 +222,11 @@ class TestApprovalFlow:
 
 
 class TestEnforcement:
-    def test_enforce_with_valid_token(self, middleware):
+    async def test_enforce_with_valid_token(self, middleware):
         from src.governance.models import GovernanceDecision, ToolCall
 
         # First, get a plan
-        eval_result = middleware.evaluate(
+        eval_result = await middleware.evaluate(
             request_body={
                 "tools": [{"type": "function", "function": {"name": "read_file", "arguments": {"path": "/tmp/test.txt"}}}]
             },
@@ -257,8 +257,8 @@ class TestEnforcement:
 
 
 class TestSessionManagement:
-    def test_creates_session_on_first_request(self, middleware):
-        result = middleware.evaluate(
+    async def test_creates_session_on_first_request(self, middleware):
+        result = await middleware.evaluate(
             request_body={
                 "tools": [{"type": "function", "function": {"name": "read_file", "arguments": {"path": "/tmp/test.txt"}}}]
             },
@@ -268,9 +268,9 @@ class TestSessionManagement:
         # Should have a session ID in the result
         assert result.session_id is not None
 
-    def test_reuses_existing_session(self, middleware):
+    async def test_reuses_existing_session(self, middleware):
         # First request
-        result1 = middleware.evaluate(
+        result1 = await middleware.evaluate(
             request_body={
                 "tools": [{"type": "function", "function": {"name": "read_file", "arguments": {"path": "/tmp/a.txt"}}}]
             },
@@ -279,7 +279,7 @@ class TestSessionManagement:
         )
 
         # Second request with same session
-        result2 = middleware.evaluate(
+        result2 = await middleware.evaluate(
             request_body={
                 "tools": [{"type": "function", "function": {"name": "read_file", "arguments": {"path": "/tmp/b.txt"}}}]
             },
@@ -291,10 +291,10 @@ class TestSessionManagement:
 
 
 class TestEvaluationResult:
-    def test_result_structure(self, middleware):
+    async def test_result_structure(self, middleware):
         from src.governance.models import GovernanceDecision
 
-        result = middleware.evaluate(
+        result = await middleware.evaluate(
             request_body={
                 "tools": [{"type": "function", "function": {"name": "read_file", "arguments": {"path": "/tmp/test.txt"}}}]
             },
@@ -313,11 +313,11 @@ class TestEvaluationResult:
 class TestSchemaPathResolution:
     """Tests for schema path resolution in middleware initialization."""
 
-    def test_schema_path_default_same_dir_as_patterns(self, tmp_path, secret):
-        """Test that default schema path is in same directory as patterns."""
+    def test_schema_path_default_canonical_location(self, tmp_path, secret):
+        """Test that default schema path is at schemas/execution-plan/1.0.0/schema.json."""
         from src.governance.middleware import GovernanceMiddleware
 
-        # Create config files in a config directory
+        # Create project structure: tmp_path is the project root
         config_dir = tmp_path / "config"
         config_dir.mkdir()
 
@@ -331,11 +331,14 @@ class TestSchemaPathResolution:
         policy_file = config_dir / "policies.json"
         policy_file.write_text(json.dumps([]))
 
-        schema_file = config_dir / "execution-plan.json"
+        # Create schema at the canonical location (relative to project root)
+        schema_dir = tmp_path / "schemas" / "execution-plan" / "1.0.0"
+        schema_dir.mkdir(parents=True)
+        schema_file = schema_dir / "schema.json"
         schema_file.write_text(json.dumps({
-            "$schema": "http://json-schema.org/draft-07/schema#",
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
-            "properties": {"description": {"type": "string"}},
+            "properties": {"description_for_user": {"type": "string"}},
         }))
 
         db_path = str(tmp_path / "test.db")
@@ -348,7 +351,7 @@ class TestSchemaPathResolution:
             settings={"enabled": True},
         )
 
-        # Planner should have loaded the schema from same dir as patterns
+        # Planner should have loaded the schema from canonical location
         assert middleware._planner._schema is not None
 
     def test_schema_path_explicit_absolute(self, tmp_path, secret):
@@ -397,8 +400,8 @@ class TestSchemaPathResolution:
         # Planner should have loaded the schema from explicit path
         assert middleware._planner._schema is not None
 
-    def test_schema_path_relative_resolved_from_patterns_dir(self, tmp_path, secret):
-        """Test that relative schema path is resolved from patterns directory."""
+    def test_schema_path_relative_resolved_from_project_root(self, tmp_path, secret):
+        """Test that relative schema path is resolved from project root."""
         from src.governance.middleware import GovernanceMiddleware
 
         # Create config files
@@ -415,12 +418,14 @@ class TestSchemaPathResolution:
         policy_file = config_dir / "policies.json"
         policy_file.write_text(json.dumps([]))
 
-        # Schema with different name in same dir
-        schema_file = config_dir / "custom-schema.json"
+        # Schema at a custom relative path from project root
+        custom_dir = tmp_path / "custom"
+        custom_dir.mkdir()
+        schema_file = custom_dir / "my-schema.json"
         schema_file.write_text(json.dumps({
-            "$schema": "http://json-schema.org/draft-07/schema#",
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
-            "properties": {"description": {"type": "string"}},
+            "properties": {"description_for_user": {"type": "string"}},
         }))
 
         db_path = str(tmp_path / "test.db")
@@ -433,7 +438,7 @@ class TestSchemaPathResolution:
             settings={
                 "enabled": True,
                 "enhancement": {
-                    "schema_path": "custom-schema.json",  # Relative path
+                    "schema_path": "custom/my-schema.json",  # Relative to project root
                 },
             },
         )
@@ -472,3 +477,52 @@ class TestSchemaPathResolution:
 
         # Planner should have None schema (file doesn't exist)
         assert middleware._planner._schema is None
+
+class TestExtractUserMessage:
+
+    def test_extract_user_message_string_content(self, middleware):
+        """Extract user message when content is a simple string."""
+        body = {
+            "messages": [
+                {"role": "user", "content": "Read /etc/hosts"}
+            ]
+        }
+        msg = middleware._extract_user_message(body)
+        assert msg == "Read /etc/hosts"
+
+    def test_extract_user_message_content_blocks(self, middleware):
+        """Extract user message when content is structured blocks."""
+        body = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Read /tmp/file.txt"}
+                    ],
+                }
+            ]
+        }
+        msg = middleware._extract_user_message(body)
+        assert msg == "Read /tmp/file.txt"
+
+    def test_extract_user_message_last_user_wins(self, middleware):
+        """If multiple user messages exist, the last one should be used."""
+        body = {
+            "messages": [
+                {"role": "user", "content": "first"},
+                {"role": "assistant", "content": "ignored"},
+                {"role": "user", "content": "second"},
+            ]
+        }
+        msg = middleware._extract_user_message(body)
+        assert msg == "second"
+
+    def test_extract_user_message_returns_none_if_missing(self, middleware):
+        """Return None if no user message exists."""
+        body = {
+            "messages": [
+                {"role": "assistant", "content": "hello"}
+            ]
+        }
+        msg = middleware._extract_user_message(body)
+        assert msg is None

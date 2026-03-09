@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -300,7 +300,7 @@ class Constraints(BaseModel):
     """Hard execution limits. Executor MUST enforce these."""
     model_config = ConfigDict(frozen=True)
 
-    allow_unplanned: bool = Field(False, const=True, description="Must be false.")
+    allow_unplanned: Literal[False] = Field(False, description="Must be false.")
     max_total_operations: int = Field(50, ge=1, description="Hard cap on total operations.")
     max_duration_ms: int = Field(300000, ge=1000, description="Plan execution timeout.")
     require_sequential: bool = Field(False, description="Force sequential execution.")
@@ -354,13 +354,20 @@ class Intent(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    summary: str = Field(..., min_length=10, description="Human-readable description.")
     primary_category: IntentCategory = Field(..., description="Primary operation type.")
+    signals: list[IntentSignal] = Field(default_factory=list)
+    tool_calls: list[ToolCall] = Field(default_factory=list)
+    confidence: float = Field(1.0, ge=0, le=1)
+
+
+class EnhancedIntent(Intent):
+    """LLM-generated structured intent used inside EnhancedExecutionPlan."""
+
+    model_config = ConfigDict(frozen=True)
+
+    summary: str = Field(..., min_length=10, description="Human-readable description.")
     user_message: str | None = Field(None, min_length=1, description="Original user request.")
     five_w_one_h: FiveWOneH = Field(default_factory=FiveWOneH)
-    signals: list[IntentSignal]
-    tool_calls: list[ToolCall]
-    confidence: float = Field(ge=0.0, le=1.0)
 
 
 class ResourceAccess(BaseModel):
@@ -586,26 +593,6 @@ class ConditionalBranch(BaseModel):
     if_false: list[int] = Field(default_factory=list)  # Step sequences to run if false
 
 
-class RecoveryPath(BaseModel):
-    """Recovery path for a failed step."""
-
-    model_config = ConfigDict(frozen=True)
-
-    trigger_step: int  # Which step this recovers from
-    trigger_errors: list[str] = Field(default_factory=list)  # Error patterns that trigger this
-    strategy: RecoveryStrategy
-
-    # For RETRY strategy
-    max_retries: int = Field(default=3, ge=1)
-    backoff_ms: int = Field(default=1000, ge=0)
-
-    # For ALTERNATIVE strategy
-    alternative_steps: list[PlannedAction] = Field(default_factory=list)
-
-    # For REPLAN strategy
-    replan_constraints: list[str] = Field(default_factory=list)
-
-
 class ExecutionState(BaseModel):
     """Full state machine for plan execution."""
 
@@ -685,7 +672,7 @@ class EnhancedExecutionPlan(BaseModel):
     base_plan: ExecutionPlan
 
     # System-generated
-    version: str = Field("1.0.0", const=True)
+    version: Literal["1.0.0"] = "1.0.0"
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     expires_at: datetime | None = Field(default_factory=lambda: datetime.now(UTC) + timedelta(hours=4))
     execution_mode: ExecutionMode
@@ -695,9 +682,14 @@ class EnhancedExecutionPlan(BaseModel):
     description_for_user: str = Field(..., min_length=10)
 
     # LLM-generated
-    intent: Intent
+    intent: EnhancedIntent
     surface_effects: SurfaceEffects
     steps: list[Step] = Field(..., min_length=1)
+    # TODO: Validate abort condition expressions.
+    # Currently abort_conditions are accepted but not validated against
+    # runtime state fields or step outputs. Future work should ensure
+    # conditions reference valid execution context fields and are
+    # syntactically safe to evaluate.
     abort_conditions: list[AbortCondition] = Field(..., min_length=1)
 
     # Inherited/Injected
@@ -755,4 +747,3 @@ class EnhancedExecutionPlan(BaseModel):
             total_steps=len(self.steps),
             started_at=datetime.now(UTC).isoformat(),
         )
-

@@ -138,6 +138,9 @@ class ExecutionEngine:
         try:
             # Execute each step
             # TODO: Execution is intentionally sequential for now. depends_on and parallel are reserved for future engine upgrades.
+            # AbortCondition objects are currently parsed but not enforced.
+            # The engine should check abort conditions before/after step execution
+            # and terminate the plan when conditions are met.
             for step in plan.steps:
                 # Check if we should skip (conditional / depends_on logic)
                 if self._should_skip(step, plan):

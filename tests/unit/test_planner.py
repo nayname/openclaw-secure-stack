@@ -11,6 +11,54 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from src.governance.models import Constraints, EnhancedIntent, IntentCategory
+
+
+@pytest.fixture
+def _mock_random_context():
+    """Prevent get_random_context from hitting the filesystem in tests."""
+    fake_context = {
+        "user_context": {"actor_id": "test-user", "role": "tester", "trust_level": "high"},
+        "scope": {"target_system": "filesystem", "environment": "test"},
+        "constraints": {"allow_unplanned": False, "max_total_operations": 10},
+        "invariants": {"must_hold": [], "refusal_conditions": []},
+    }
+    with patch("src.governance.planner.get_random_context", return_value=fake_context):
+        yield
+
+
+def _mock_llm_output(description: str = "Test plan for unit testing") -> str:
+    """Return a valid schema-conformant LLM output for tests."""
+    return json.dumps({
+        "version": "1.0.0",
+        "plan_id": "00000000-0000-0000-0000-000000000000",
+        "created_at": "2025-01-01T00:00:00Z",
+        "execution_mode": "governance_driven",
+        "description_for_user": description,
+        "surface_effects": {
+            "touches": ["/tmp/test.txt"],
+            "modifies": False,
+            "creates": False,
+            "deletes": False,
+        },
+        "intent": {
+            "summary": description,
+            "category": "read",
+            "five_w_one_h": {"who": "system", "what": "read file", "where": "/tmp", "when": "immediate", "why": "test", "how": "filesystem read"},
+        },
+        "steps": [{
+            "step": 1,
+            "action": "Read file",
+            "inputs": {"required": [{"name": "path", "type": "string"}], "optional": []},
+            "do": {"tool": "read", "operation": "file", "target": "/tmp/test.txt", "parameters": {}},
+            "verify": {"checks": [{"name": "file_read", "evidence": "fs stat", "pass_condition": "file.exists == true"}]},
+            "on_fail": {"behavior": "abort_plan", "refuse_if": []},
+            "audit": {"record_outputs": [{"name": "contents", "type": "string", "write_to": "log"}]},
+        }],
+        "constraints": {"allow_unplanned": False, "max_total_operations": 5},
+        "abort_conditions": [{"condition": "file.missing", "reason": "File not found"}],
+    })
+
 
 @pytest.fixture
 def patterns_path(tmp_path: Path) -> str:
@@ -43,16 +91,30 @@ def patterns_path(tmp_path: Path) -> str:
 
 @pytest.fixture
 def schema_path(tmp_path: Path) -> str:
-    """Create a temporary schema file."""
+    """Create a temporary schema file (permissive for unit tests)."""
     schema = {
-        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
+        "required": [
+            "version", "plan_id", "created_at", "execution_mode",
+            "intent", "steps", "constraints", "abort_conditions",
+            "description_for_user", "surface_effects",
+        ],
         "properties": {
-            "description": {"type": "string"},
-            "constraints": {"type": "array", "items": {"type": "string"}},
+            "version": {"type": "string"},
+            "plan_id": {"type": "string"},
+            "created_at": {"type": "string"},
+            "execution_mode": {"type": "string"},
+            "intent": {"type": "object"},
+            "steps": {"type": "array"},
+            "constraints": {"type": "object"},
+            "abort_conditions": {"type": "array"},
+            "description_for_user": {"type": "string"},
+            "surface_effects": {"type": "object"},
         },
+        "additionalProperties": True,
     }
-    path = tmp_path / "execution-plan.json"
+    path = tmp_path / "schema.json"
     path.write_text(json.dumps(schema))
     return str(path)
 
@@ -551,7 +613,7 @@ class TestEnhanceSecurityAudit:
     """Tests for security audit logging during enhance()."""
 
     def test_enhance_logs_security_audit(
-        self, planner_with_schema, caplog
+        self, planner_with_schema, caplog, _mock_random_context
     ):
         """Test that enhance() logs a security audit event."""
         from src.governance.models import (
@@ -588,22 +650,18 @@ class TestEnhanceSecurityAudit:
             ),
         )
 
-        # Mock LLM client
         mock_llm = MagicMock()
-        mock_llm.complete.return_value = json.dumps({
-            "description": "Test plan",
-            "constraints": [],
-        })
+        mock_llm.complete.return_value = _mock_llm_output("Test plan for audit logging")
 
         with caplog.at_level(logging.INFO):
-            planner_with_schema.enhance(plan, llm=mock_llm, context={})
+            planner_with_schema.enhance(plan, llm=mock_llm, user_message="test")
 
         # Check audit log was created
         assert any("SECURITY_AUDIT" in record.message for record in caplog.records)
         assert any("test-plan-123" in record.message for record in caplog.records)
 
-    def test_enhance_sanitizes_before_llm_call(self, planner_with_schema):
-        """Test that sensitive data is sanitized before LLM call."""
+    def test_enhance_does_not_leak_plan_data_to_llm(self, planner_with_schema, _mock_random_context):
+        """Test that base plan data (including sensitive args) is not sent to LLM."""
         from src.governance.models import (
             ExecutionPlan,
             PlannedAction,
@@ -642,23 +700,22 @@ class TestEnhanceSecurityAudit:
         )
 
         mock_llm = MagicMock()
-        mock_llm.complete.return_value = json.dumps({"description": "Test"})
+        mock_llm.complete.return_value = _mock_llm_output("Test sanitization plan")
 
-        planner_with_schema.enhance(plan, llm=mock_llm, context={})
+        planner_with_schema.enhance(plan, llm=mock_llm, user_message="test")
 
         # Check what was sent to LLM
         call_args = mock_llm.complete.call_args
         prompt = call_args.kwargs.get("prompt") or call_args.args[0]
 
-        # Sensitive values should NOT appear in the prompt
+        # Base plan data (including sensitive values) should NOT appear in prompt
+        # The prompt only contains user_message, local_context, and schema
         assert "sk-secret-key-12345" not in prompt
         assert "super-secret" not in prompt
-        # Redacted marker should appear
-        assert "[REDACTED]" in prompt
-        # Non-sensitive values should still be there
-        assert "https://api.example.com" in prompt
+        assert "https://api.example.com" not in prompt
+        assert "test-plan" not in prompt
 
-    def test_enhance_logs_redacted_count(self, planner_with_schema, caplog):
+    def test_enhance_logs_redacted_count(self, planner_with_schema, caplog, _mock_random_context):
         """Test that audit log includes count of redacted fields."""
         from src.governance.models import (
             ExecutionPlan,
@@ -698,13 +755,111 @@ class TestEnhanceSecurityAudit:
         )
 
         mock_llm = MagicMock()
-        mock_llm.complete.return_value = json.dumps({"description": "DB connection"})
+        mock_llm.complete.return_value = _mock_llm_output("DB connection test plan")
 
         with caplog.at_level(logging.INFO):
-            planner_with_schema.enhance(plan, llm=mock_llm, context={})
+            planner_with_schema.enhance(plan, llm=mock_llm, user_message="test")
 
         # Find the audit log message
         audit_logs = [r for r in caplog.records if "SECURITY_AUDIT" in r.message]
         assert len(audit_logs) == 1
         # Should mention fields_redacted=2 (password and token - path is safe)
         assert "fields_redacted=2" in audit_logs[0].message
+
+class TestIntentParsing:
+
+    def test_parse_intent_category_mapping(self, planner_with_schema):
+        """Category string should map correctly to IntentCategory enum."""
+        data = {
+            "summary": "Read a file from the system",
+            "category": "read",
+            "five_w_one_h": {
+                "who": "system",
+                "what": "read file",
+                "where": "/tmp",
+                "when": "now",
+                "why": "testing",
+                "how": "filesystem",
+            },
+        }
+
+        intent = planner_with_schema._parse_intent(data, "Read a file from the system")
+
+        from src.governance.models import IntentCategory
+        assert intent.primary_category == IntentCategory.FILE_READ
+
+
+    def test_parse_intent_defaults(self, planner_with_schema):
+        """Intent should apply defaults for optional fields."""
+        data = {
+            "summary": "Read a configuration file for testing",
+            "category": "read",
+            "five_w_one_h": {},
+        }
+
+        intent = planner_with_schema._parse_intent(data, "Read a configuration file for testing")
+
+        assert intent.signals == []
+        assert intent.tool_calls == []
+        assert intent.confidence == 1.0
+
+    def test_parse_intent_unknown_category(self, planner_with_schema):
+        """Unknown category should map to UNKNOWN."""
+        data = {
+            "summary": "Something strange",
+            "category": "unknown_category",
+            "five_w_one_h": {},
+        }
+
+        intent = planner_with_schema._parse_intent(data, "Some user query")
+
+        from src.governance.models import IntentCategory
+        assert intent.primary_category == IntentCategory.UNKNOWN
+
+
+class TestConstraintsModel:
+
+    def test_allow_unplanned_must_be_false(self):
+        """Constraints must reject allow_unplanned=True."""
+        with pytest.raises(Exception):
+            Constraints(allow_unplanned=True)
+
+
+    def test_constraints_defaults(self):
+        """Default constraint values should be valid."""
+        c = Constraints()
+
+        assert c.allow_unplanned is False
+        assert c.max_total_operations == 50
+
+
+class TestEnhancedIntentValidation:
+
+    def test_summary_min_length(self):
+        """Summary shorter than required should fail."""
+        import pytest
+
+        with pytest.raises(Exception):
+            EnhancedIntent(
+                summary="short",
+                primary_category=IntentCategory.FILE_READ,
+                signals=[],
+                tool_calls=[],
+                confidence=1.0,
+            )
+
+
+    def test_confidence_bounds(self):
+        """Confidence must be between 0 and 1."""
+        import pytest
+
+        with pytest.raises(Exception):
+            EnhancedIntent(
+                summary="Valid summary of plan",
+                primary_category=IntentCategory.FILE_READ,
+                signals=[],
+                tool_calls=[],
+                confidence=2.0,
+            )
+
+

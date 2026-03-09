@@ -16,13 +16,14 @@ import os
 import sys
 
 import pytest
-from datetime import UTC, datetime
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import datetime
+from unittest.mock import MagicMock, patch
 
 from src.governance.models import (
-    ConditionalBranch,
+    AbortCondition,
+    CheckSpec,
     EnhancedExecutionPlan,
+    EnhancedIntent,
     ExecutionContext,
     ExecutionMode,
     ExecutionPlan,
@@ -31,20 +32,38 @@ from src.governance.models import (
     Intent,
     IntentCategory,
     IntentSignal,
+    OnFailBehavior,
     PlannedAction,
-    RecoveryPath,
-    RecoveryStrategy,
     ResourceAccess,
     RiskAssessment,
     RiskLevel,
+    Step,
+    StepAudit,
+    StepDo,
+    StepOnFail,
     StepResult,
     StepStatus,
+    StepVerify,
+    SurfaceEffects,
     ToolCall,
 )
 from src.governance.planner import PlanGenerator
 
 
 # --- Fixtures ---
+
+
+@pytest.fixture
+def _mock_random_context():
+    """Prevent get_random_context from hitting the filesystem in tests."""
+    fake_context = {
+        "user_context": {"actor_id": "test-user", "role": "tester", "trust_level": "high"},
+        "scope": {"target_system": "filesystem", "environment": "test"},
+        "constraints": {"allow_unplanned": False, "max_total_operations": 10},
+        "invariants": {"must_hold": [], "refusal_conditions": []},
+    }
+    with patch("src.governance.planner.get_random_context", return_value=fake_context):
+        yield
 
 
 @pytest.fixture
@@ -105,73 +124,71 @@ def sample_execution_plan(sample_tool_call: ToolCall) -> ExecutionPlan:
         ),
     )
 
+@pytest.fixture
+def real_llm():
+    from src.llm.client import LLMClient
+    return LLMClient()
 
 @pytest.fixture
 def sample_enhanced_plan(sample_execution_plan: ExecutionPlan) -> EnhancedExecutionPlan:
     """Create a sample enhanced execution plan."""
     return EnhancedExecutionPlan(
         base_plan=sample_execution_plan,
-        description="Read a document from the user's home directory",
-        constraints=["No unplanned operations allowed"],
-        preferences=["Use caching if available"],
-        recovery_paths=[
-            RecoveryPath(
-                trigger_step=0,
-                strategy=RecoveryStrategy.RETRY,
-                max_retries=3,
-                backoff_ms=1000,
-            )
-        ],
-        conditionals=[],
         execution_mode=ExecutionMode.GOVERNANCE_DRIVEN,
-        operations=[],
-        global_constraints={"allowUnplanned": False},
-        metadata={"generatedBy": "test"},
+        description_for_user="Read a document from the user's home directory",
+        intent=EnhancedIntent(
+            summary="Read a document from user home",
+            primary_category=IntentCategory.FILE_READ,
+            signals=[], tool_calls=[], confidence=1.0,
+        ),
+        surface_effects=SurfaceEffects(
+            touches=["/home/user/document.txt"], modifies=False, creates=False, deletes=False,
+        ),
+        steps=[Step(
+            step=1, action="Read document",
+            do=StepDo(tool="read", operation="file", target="/home/user/document.txt"),
+            verify=StepVerify(checks=[CheckSpec(name="file_read", evidence="fs stat", pass_condition="file.exists == true")]),
+            on_fail=StepOnFail(behavior=OnFailBehavior.ABORT_PLAN, refuse_if=[]),
+            audit=StepAudit(record_outputs=[]),
+        )],
+        abort_conditions=[AbortCondition(condition="file.missing", reason="Target file does not exist")],
     )
+
+
+def _make_llm_output(**overrides) -> str:
+    """Return valid schema-conformant LLM output for tests."""
+    data = {
+        "version": "1.0.0",
+        "plan_id": "00000000-0000-0000-0000-000000000000",
+        "created_at": "2025-01-01T00:00:00Z",
+        "execution_mode": "governance_driven",
+        "description_for_user": "Test plan description for testing purposes",
+        "surface_effects": {"touches": ["/tmp/test.txt"], "modifies": False, "creates": False, "deletes": False},
+        "intent": {
+            "summary": "Test plan for reading files",
+            "category": "read",
+            "five_w_one_h": {"who": "system", "what": "read file", "where": "/tmp", "when": "immediate", "why": "test", "how": "fs read"},
+        },
+        "steps": [{
+            "step": 1, "action": "Read file",
+            "inputs": {"required": [{"name": "path", "type": "string"}], "optional": []},
+            "do": {"tool": "read", "operation": "file", "target": "/tmp/test.txt", "parameters": {}},
+            "verify": {"checks": [{"name": "file_read", "evidence": "fs stat", "pass_condition": "file.exists == true"}]},
+            "on_fail": {"behavior": "abort_plan", "refuse_if": []},
+            "audit": {"record_outputs": [{"name": "contents", "type": "string", "write_to": "log"}]},
+        }],
+        "constraints": {"allow_unplanned": False, "max_total_operations": 5},
+        "abort_conditions": [{"condition": "file.missing", "reason": "File not found"}],
+    }
+    data.update(overrides)
+    return json.dumps(data)
 
 
 @pytest.fixture
 def mock_llm() -> MagicMock:
-    """Create a mock LLM client."""
+    """Create a mock LLM client returning schema-conformant output."""
     llm = MagicMock()
-    llm.complete = MagicMock(return_value=json.dumps({
-        "description": "Test plan description",
-        "operations": [
-            {
-                "id": "op-001",
-                "tool": "read_file",
-                "allow": ["*.txt"],
-                "deny": ["/etc/*"],
-            }
-        ],
-        "constraints": {
-            "allowUnplanned": False,
-            "requireSequential": True,
-            "maxTotalOperations": 5,
-            "maxDurationMs": 30000,
-        },
-        "recoveryPaths": [
-            {
-                "triggerStep": 0,
-                "strategy": "retry",
-                "maxRetries": 3,
-                "backoffMs": 1000,
-            }
-        ],
-        "conditionals": [
-            {
-                "condition": "step_0_success",
-                "ifTrue": [1],
-                "ifFalse": [2],
-            }
-        ],
-        "executionMode": "governance_driven",
-        "preferences": ["cache_results"],
-        "metadata": {
-            "generatedBy": "claude-3",
-            "qualityScore": 85,
-        },
-    }))
+    llm.complete = MagicMock(return_value=_make_llm_output())
     return llm
 
 
@@ -201,22 +218,74 @@ def patterns_config(tmp_path) -> str:
 
 @pytest.fixture
 def schema_config(tmp_path) -> str:
-    """Create a temporary schema config file."""
+    """Create a temporary schema config file (permissive for integration tests)."""
     schema = {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "EnhancedExecutionPlan",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "ExecutionPlan",
         "type": "object",
-        "required": ["description", "operations", "constraints"],
+        "required": [
+            "version", "plan_id", "created_at", "execution_mode",
+            "intent", "steps", "constraints", "abort_conditions",
+            "description_for_user", "surface_effects",
+        ],
         "properties": {
-            "description": {"type": "string"},
-            "operations": {"type": "array"},
-            "constraints": {"oneOf": [{"type": "object"}, {"type": "array"}]},
-            "recoveryPaths": {"type": "array"},
-            "conditionals": {"type": "array"},
-            "executionMode": {"type": "string"},
+            "version": {"type": "string"},
+            "plan_id": {"type": "string"},
+            "created_at": {"type": "string"},
+            "execution_mode": {"type": "string"},
+            "description_for_user": {"type": "string"},
+            "surface_effects": {"type": "object"},
+            "intent": {"type": "object"},
+            "steps": {"type": "array"},
+            "constraints": {"type": "object"},
+            "abort_conditions": {"type": "array"},
         },
+        "additionalProperties": True,
     }
-    schema_path = tmp_path / "execution-plan.json"
+    schema_path = tmp_path / "schema.json"
+    schema_path.write_text(json.dumps(schema))
+    return str(schema_path)
+
+@pytest.fixture
+def schema_config_strict(tmp_path) -> str:
+    """Schema for real-LLM tests: enforce required surface_effects fields."""
+    schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "ExecutionPlan",
+        "type": "object",
+        "required": [
+            "version", "plan_id", "created_at", "execution_mode",
+            "intent", "steps", "constraints", "abort_conditions",
+            "description_for_user", "surface_effects",
+        ],
+        "properties": {
+            "version": {"type": "string"},
+            "plan_id": {"type": "string"},
+            "created_at": {"type": "string"},
+            "execution_mode": {"type": "string"},
+            "description_for_user": {"type": "string"},
+
+            "surface_effects": {
+                "type": "object",
+                "required": ["touches", "modifies", "creates", "deletes"],
+                "properties": {
+                    "touches": {"type": "array", "items": {"type": "string"}},
+                    "modifies": {"type": "boolean"},
+                    "creates": {"type": "boolean"},
+                    "deletes": {"type": "boolean"},
+                },
+                "additionalProperties": True,
+            },
+
+            "intent": {"type": "object"},
+            "steps": {"type": "array"},
+            "constraints": {"type": "object"},
+            "abort_conditions": {"type": "array"},
+        },
+        "additionalProperties": True,
+    }
+
+    schema_path = tmp_path / "schema_strict.json"
     schema_path.write_text(json.dumps(schema))
     return str(schema_path)
 
@@ -236,7 +305,7 @@ class TestPlanGeneratorEnhance:
         generator = PlanGenerator(patterns_config, schema_path=schema_config)
 
         with pytest.raises(RuntimeError, match="No LLM client"):
-            generator.enhance(sample_execution_plan, llm=None)
+            generator.enhance(sample_execution_plan, llm=None, user_message="test")
 
     def test_enhance_requires_schema(
             self, patterns_config: str, sample_execution_plan: ExecutionPlan, mock_llm: MagicMock
@@ -245,7 +314,7 @@ class TestPlanGeneratorEnhance:
         generator = PlanGenerator(patterns_config, schema_path="/nonexistent/schema.json")
 
         with pytest.raises(RuntimeError, match="Schema not found"):
-            generator.enhance(sample_execution_plan, llm=mock_llm)
+            generator.enhance(sample_execution_plan, llm=mock_llm, user_message="test")
 
     def test_enhance_returns_enhanced_plan(
             self,
@@ -253,6 +322,7 @@ class TestPlanGeneratorEnhance:
             schema_config: str,
             sample_execution_plan: ExecutionPlan,
             mock_llm: MagicMock,
+            _mock_random_context
     ):
         """Test that enhance() returns EnhancedExecutionPlan."""
         generator = PlanGenerator(patterns_config, schema_path=schema_config)
@@ -260,49 +330,13 @@ class TestPlanGeneratorEnhance:
         enhanced = generator.enhance(
             sample_execution_plan,
             llm=mock_llm,
-            context={"user_role": "admin"},
+            user_message="Read the admin file",
         )
 
         assert isinstance(enhanced, EnhancedExecutionPlan)
         assert enhanced.base_plan == sample_execution_plan
-        assert enhanced.description == "Test plan description"
-
-    def test_enhance_parses_recovery_paths(
-            self,
-            patterns_config: str,
-            schema_config: str,
-            sample_execution_plan: ExecutionPlan,
-            mock_llm: MagicMock,
-    ):
-        """Test that recovery paths are parsed from LLM output."""
-        generator = PlanGenerator(patterns_config, schema_path=schema_config)
-
-        enhanced = generator.enhance(sample_execution_plan, llm=mock_llm)
-
-        assert len(enhanced.recovery_paths) == 1
-        path = enhanced.recovery_paths[0]
-        assert path.trigger_step == 0
-        assert path.strategy == RecoveryStrategy.RETRY
-        assert path.max_retries == 3
-        assert path.backoff_ms == 1000
-
-    def test_enhance_parses_conditionals(
-            self,
-            patterns_config: str,
-            schema_config: str,
-            sample_execution_plan: ExecutionPlan,
-            mock_llm: MagicMock,
-    ):
-        """Test that conditionals are parsed from LLM output."""
-        generator = PlanGenerator(patterns_config, schema_path=schema_config)
-
-        enhanced = generator.enhance(sample_execution_plan, llm=mock_llm)
-
-        assert len(enhanced.conditionals) == 1
-        cond = enhanced.conditionals[0]
-        assert cond.condition == "step_0_success"
-        assert cond.if_true == [1]
-        assert cond.if_false == [2]
+        assert enhanced.description_for_user == "Test plan description for testing purposes"
+        assert enhanced.intent.user_message == "Read the admin file"
 
     def test_enhance_parses_execution_mode(
             self,
@@ -310,11 +344,12 @@ class TestPlanGeneratorEnhance:
             schema_config: str,
             sample_execution_plan: ExecutionPlan,
             mock_llm: MagicMock,
+            _mock_random_context
     ):
         """Test that execution mode is parsed correctly."""
         generator = PlanGenerator(patterns_config, schema_path=schema_config)
 
-        enhanced = generator.enhance(sample_execution_plan, llm=mock_llm)
+        enhanced = generator.enhance(sample_execution_plan, llm=mock_llm, user_message="test")
 
         assert enhanced.execution_mode == ExecutionMode.GOVERNANCE_DRIVEN
 
@@ -323,83 +358,42 @@ class TestPlanGeneratorEnhance:
             patterns_config: str,
             schema_config: str,
             sample_execution_plan: ExecutionPlan,
+            _mock_random_context
     ):
         """Test that agent_guided mode is parsed correctly."""
         llm = MagicMock()
-        llm.complete = MagicMock(return_value=json.dumps({
-            "description": "Agent guided plan",
-            "executionMode": "agent_guided",
-            "operations": [],
-            "constraints": {},
-        }))
+        llm.complete = MagicMock(return_value=_make_llm_output(execution_mode="agent_guided"))
 
         generator = PlanGenerator(patterns_config, schema_path=schema_config)
-        enhanced = generator.enhance(sample_execution_plan, llm=llm)
+        enhanced = generator.enhance(sample_execution_plan, llm=llm, user_message="test")
 
         assert enhanced.execution_mode == ExecutionMode.AGENT_GUIDED
-
-    def test_enhance_converts_constraints_dict_to_list(
-            self,
-            patterns_config: str,
-            schema_config: str,
-            sample_execution_plan: ExecutionPlan,
-            mock_llm: MagicMock,
-    ):
-        """Test that constraint dict is converted to human-readable list."""
-        generator = PlanGenerator(patterns_config, schema_path=schema_config)
-
-        enhanced = generator.enhance(sample_execution_plan, llm=mock_llm)
-
-        assert "No unplanned operations allowed" in enhanced.constraints
-        assert "Operations must execute sequentially" in enhanced.constraints
-        assert "Maximum 5 total operations" in enhanced.constraints
-        assert "Maximum duration: 30000ms" in enhanced.constraints
-
-    def test_enhance_handles_constraints_as_list(
-            self,
-            patterns_config: str,
-            schema_config: str,
-            sample_execution_plan: ExecutionPlan,
-    ):
-        """Test that constraints can be provided as a list."""
-        llm = MagicMock()
-        llm.complete = MagicMock(return_value=json.dumps({
-            "description": "Test",
-            "operations": [],
-            "constraints": ["Constraint 1", "Constraint 2"],
-        }))
-
-        generator = PlanGenerator(patterns_config, schema_path=schema_config)
-        enhanced = generator.enhance(sample_execution_plan, llm=llm)
-
-        assert enhanced.constraints == ["Constraint 1", "Constraint 2"]
 
     def test_enhance_strips_markdown_fences(
             self,
             patterns_config: str,
             schema_config: str,
             sample_execution_plan: ExecutionPlan,
+            _mock_random_context
     ):
         """Test that markdown code fences are stripped from LLM response."""
         llm = MagicMock()
-        llm.complete = MagicMock(return_value="""```json
-{
-    "description": "Markdown wrapped response",
-    "operations": [],
-    "constraints": {}
-}
-```""")
+        wrapped = "```json\n" + _make_llm_output(
+            description_for_user="Markdown wrapped response for testing"
+        ) + "\n```"
+        llm.complete = MagicMock(return_value=wrapped)
 
         generator = PlanGenerator(patterns_config, schema_path=schema_config)
-        enhanced = generator.enhance(sample_execution_plan, llm=llm)
+        enhanced = generator.enhance(sample_execution_plan, llm=llm, user_message="test")
 
-        assert enhanced.description == "Markdown wrapped response"
+        assert enhanced.description_for_user == "Markdown wrapped response for testing"
 
     def test_enhance_raises_on_invalid_json(
             self,
             patterns_config: str,
             schema_config: str,
             sample_execution_plan: ExecutionPlan,
+            _mock_random_context
     ):
         """Test that invalid JSON from LLM raises ValueError."""
         llm = MagicMock()
@@ -408,69 +402,7 @@ class TestPlanGeneratorEnhance:
         generator = PlanGenerator(patterns_config, schema_path=schema_config)
 
         with pytest.raises(ValueError, match="LLM returned invalid JSON"):
-            generator.enhance(sample_execution_plan, llm=llm)
-
-    def test_enhance_skips_malformed_recovery_paths(
-            self,
-            patterns_config: str,
-            schema_config: str,
-            sample_execution_plan: ExecutionPlan,
-            caplog,
-    ):
-        """Test that malformed recovery paths are skipped and logged."""
-        llm = MagicMock()
-        llm.complete = MagicMock(return_value=json.dumps({
-            "description": "Test",
-            "operations": [],
-            "constraints": {},
-            "recoveryPaths": [
-                {"triggerStep": 0, "strategy": "retry"},  # Valid
-                {"strategy": "retry"},  # Missing triggerStep
-                {"triggerStep": 1, "strategy": "invalid_strategy"},  # Invalid strategy
-            ],
-        }))
-
-        import logging
-        with caplog.at_level(logging.DEBUG):
-            generator = PlanGenerator(patterns_config, schema_path=schema_config)
-            enhanced = generator.enhance(sample_execution_plan, llm=llm)
-
-        # Only the valid one should be parsed
-        assert len(enhanced.recovery_paths) == 1
-        assert enhanced.recovery_paths[0].trigger_step == 0
-
-        # Verify malformed entries were logged
-        assert "Skipping malformed recovery_path entry" in caplog.text
-
-    def test_enhance_skips_malformed_conditionals(
-            self,
-            patterns_config: str,
-            schema_config: str,
-            sample_execution_plan: ExecutionPlan,
-            caplog,
-    ):
-        """Test that malformed conditionals are skipped and logged."""
-        llm = MagicMock()
-        llm.complete = MagicMock(return_value=json.dumps({
-            "description": "Test",
-            "operations": [],
-            "constraints": {},
-            "conditionals": [
-                {"condition": "valid", "ifTrue": [1]},  # Valid
-                {"ifTrue": [1]},  # Missing condition
-            ],
-        }))
-
-        import logging
-        with caplog.at_level(logging.DEBUG):
-            generator = PlanGenerator(patterns_config, schema_path=schema_config)
-            enhanced = generator.enhance(sample_execution_plan, llm=llm)
-
-        assert len(enhanced.conditionals) == 1
-        assert enhanced.conditionals[0].condition == "valid"
-
-        # Verify malformed entry was logged
-        assert "Skipping malformed conditional entry" in caplog.text
+            generator.enhance(sample_execution_plan, llm=llm, user_message="test")
 
 
 # --- EnhancedExecutionPlan Model Tests ---
@@ -483,7 +415,7 @@ class TestEnhancedExecutionPlan:
         """Test that property accessors delegate to base plan."""
         assert sample_enhanced_plan.plan_id == "plan-123"
         assert sample_enhanced_plan.session_id == "session-456"
-        assert len(sample_enhanced_plan.actions) == 1
+        assert len(sample_enhanced_plan.base_plan.actions) == 1
         assert sample_enhanced_plan.risk_assessment.level == RiskLevel.LOW
 
     def test_initialize_state(self, sample_enhanced_plan: EnhancedExecutionPlan):
@@ -521,15 +453,12 @@ class TestEnhancedExecutionPlan:
         """Test that initialize_state raises ValueError when session_id is None."""
         enhanced = EnhancedExecutionPlan(
             base_plan=sample_execution_plan,
-            description="Test",
-            constraints=[],
-            preferences=[],
-            recovery_paths=[],
-            conditionals=[],
             execution_mode=ExecutionMode.GOVERNANCE_DRIVEN,
-            operations=[],
-            global_constraints={},
-            metadata={},
+            description_for_user="Test plan for unit testing purposes",
+            intent=EnhancedIntent(summary="Test plan for unit testing", primary_category=IntentCategory.FILE_READ, signals=[], tool_calls=[], confidence=1.0),
+            surface_effects=SurfaceEffects(touches=["/tmp/test"], modifies=False, creates=False, deletes=False),
+            steps=[Step(step=1, action="Read file", do=StepDo(tool="read", operation="file", target="/tmp/test.txt", parameters={"path": "/home/user/document.txt"}), verify=StepVerify(checks=[CheckSpec(name="check", evidence="stat", pass_condition="true")]), on_fail=StepOnFail(behavior=OnFailBehavior.ABORT_PLAN, refuse_if=[]), audit=StepAudit(record_outputs=[]))],
+            abort_conditions=[AbortCondition(condition="error", reason="Test abort")],
         )
 
         with pytest.raises(ValueError, match="session_id is required"):
@@ -545,15 +474,12 @@ class TestEnhancedExecutionPlan:
         """Test that initialize_state sets started_at timestamp."""
         enhanced = EnhancedExecutionPlan(
             base_plan=sample_execution_plan,
-            description="Test",
-            constraints=[],
-            preferences=[],
-            recovery_paths=[],
-            conditionals=[],
             execution_mode=ExecutionMode.GOVERNANCE_DRIVEN,
-            operations=[],
-            global_constraints={},
-            metadata={},
+            description_for_user="Test plan for unit testing purposes",
+            intent=EnhancedIntent(summary="Test plan for unit testing", primary_category=IntentCategory.FILE_READ, signals=[], tool_calls=[], confidence=1.0),
+            surface_effects=SurfaceEffects(touches=["/tmp/test"], modifies=False, creates=False, deletes=False),
+            steps=[Step(step=1, action="Read file", do=StepDo(tool="read", operation="file", target="/tmp/test.txt", parameters={"path": "/home/user/document.txt"}), verify=StepVerify(checks=[CheckSpec(name="check", evidence="stat", pass_condition="true")]), on_fail=StepOnFail(behavior=OnFailBehavior.ABORT_PLAN, refuse_if=[]), audit=StepAudit(record_outputs=[]))],
+            abort_conditions=[AbortCondition(condition="error", reason="Test abort")],
         )
 
         enhanced.initialize_state(
@@ -614,7 +540,6 @@ class TestMiddlewareEnhancementSettings:
             "enabled": True,
             "enhancement": {
                 "enabled": True,
-                "default_context": {"user_role": "admin"},
             },
         }
 
@@ -627,7 +552,6 @@ class TestMiddlewareEnhancementSettings:
         )
 
         assert middleware._enhancement_enabled is True
-        assert middleware._enhancement_context == {"user_role": "admin"}
 
 
 # --- ExecutionState Tests ---
@@ -646,6 +570,7 @@ class TestExecutionState:
                 session_id="session-456",
                 user_id="user-123",
                 token="token-abc",
+                request_body={"tools": []},
             ),
             current_sequence=0,
             status=StepStatus.PENDING,
@@ -664,6 +589,7 @@ class TestExecutionState:
                 session_id="session-456",
                 user_id="user-123",
                 token="token-abc",
+                request_body={"tools": []},
             ),
             current_sequence=3,
             status=StepStatus.COMPLETED,
@@ -682,6 +608,7 @@ class TestExecutionState:
                 session_id="session-456",
                 user_id="user-123",
                 token="token-abc",
+                request_body={"tools": []},
             ),
             current_sequence=1,
             status=StepStatus.FAILED,
@@ -700,6 +627,7 @@ class TestExecutionState:
                 session_id="session-456",
                 user_id="user-123",
                 token="token-abc",
+                request_body={"tools": []},
             ),
             current_sequence=1,
             status=StepStatus.RUNNING,
@@ -719,6 +647,7 @@ class TestExecutionState:
                 session_id="session-456",
                 user_id="user-123",
                 token="token-abc",
+                request_body={"tools": []},
             ),
             current_sequence=0,
             status=StepStatus.COMPLETED,
@@ -726,66 +655,6 @@ class TestExecutionState:
         )
 
         assert state.get_progress() == 100.0
-
-
-# --- RecoveryPath Tests ---
-
-
-class TestRecoveryPath:
-    """Tests for RecoveryPath model."""
-
-    def test_recovery_path_defaults(self):
-        """Test RecoveryPath default values."""
-        path = RecoveryPath(
-            trigger_step=0,
-            strategy=RecoveryStrategy.RETRY,
-        )
-
-        assert path.max_retries == 3
-        assert path.backoff_ms == 1000
-        assert path.trigger_errors == []
-
-    def test_recovery_path_with_custom_values(self):
-        """Test RecoveryPath with custom values."""
-        path = RecoveryPath(
-            trigger_step=2,
-            strategy=RecoveryStrategy.SKIP,
-            max_retries=5,
-            backoff_ms=2000,
-            trigger_errors=["TimeoutError", "ConnectionError"],
-        )
-
-        assert path.trigger_step == 2
-        assert path.strategy == RecoveryStrategy.SKIP
-        assert path.max_retries == 5
-        assert path.backoff_ms == 2000
-        assert path.trigger_errors == ["TimeoutError", "ConnectionError"]
-
-
-# --- ConditionalBranch Tests ---
-
-
-class TestConditionalBranch:
-    """Tests for ConditionalBranch model."""
-
-    def test_conditional_branch_defaults(self):
-        """Test ConditionalBranch default values."""
-        branch = ConditionalBranch(condition="step_0_success")
-
-        assert branch.condition == "step_0_success"
-        assert branch.if_true == []
-        assert branch.if_false == []
-
-    def test_conditional_branch_with_branches(self):
-        """Test ConditionalBranch with branch sequences."""
-        branch = ConditionalBranch(
-            condition="file_exists",
-            if_true=[1, 2, 3],
-            if_false=[4, 5],
-        )
-
-        assert branch.if_true == [1, 2, 3]
-        assert branch.if_false == [4, 5]
 
 
 # --- StepResult Tests ---
@@ -812,25 +681,6 @@ class TestStepResult:
         assert result.error is None
         assert result.retry_count == 0
 
-    def test_step_result_failed(self):
-        """Test StepResult for failed step."""
-        result = StepResult(
-            sequence=1,
-            status=StepStatus.FAILED,
-            started_at="2024-01-01T00:00:00+00:00",
-            completed_at="2024-01-01T00:00:05+00:00",
-            duration_ms=5000,
-            tool_name="write_file",
-            tool_args={"path": "/etc/passwd"},
-            error="Permission denied",
-            retry_count=3,
-            recovery_action=RecoveryStrategy.FAIL_FAST,
-        )
-
-        assert result.status == StepStatus.FAILED
-        assert result.error == "Permission denied"
-        assert result.retry_count == 3
-        assert result.recovery_action == RecoveryStrategy.FAIL_FAST
 
     def test_step_result_blocked(self):
         """Test StepResult for governance-blocked step."""
@@ -862,6 +712,7 @@ class TestPlanGeneratorIntegration:
             schema_config: str,
             sample_intent: Intent,
             mock_llm: MagicMock,
+            _mock_random_context
     ):
         """Test complete flow from intent to enhanced plan."""
         generator = PlanGenerator(patterns_config, schema_path=schema_config)
@@ -880,12 +731,12 @@ class TestPlanGeneratorIntegration:
         enhanced_plan = generator.enhance(
             base_plan,
             llm=mock_llm,
-            context={"user_role": "admin"},
+            user_message="test",
         )
 
         assert isinstance(enhanced_plan, EnhancedExecutionPlan)
         assert enhanced_plan.base_plan == base_plan
-        assert enhanced_plan.description is not None
+        assert enhanced_plan.description_for_user is not None
 
         # Step 3: Initialize state
         enhanced_plan.initialize_state(
@@ -961,15 +812,24 @@ class TestMiddlewareCreateEnhancedPlan:
         """Create a mock enhanced plan returned by planner."""
         return EnhancedExecutionPlan(
             base_plan=sample_base_plan,
-            description="Test enhanced plan",
-            constraints=[],
-            preferences=[],
-            recovery_paths=[],
-            conditionals=[],
             execution_mode=ExecutionMode.GOVERNANCE_DRIVEN,
-            operations=[],
-            global_constraints={},
-            metadata={},
+            description_for_user="Test enhanced plan for integration testing",
+            intent=EnhancedIntent(
+                summary="Test enhanced plan for testing",
+                primary_category=IntentCategory.FILE_READ,
+                signals=[], tool_calls=[], confidence=1.0,
+            ),
+            surface_effects=SurfaceEffects(
+                touches=["/tmp/test"], modifies=False, creates=False, deletes=False,
+            ),
+            steps=[Step(
+                step=1, action="Read file",
+                do=StepDo(tool="read", operation="file", target="/tmp/test.txt"),
+                verify=StepVerify(checks=[CheckSpec(name="check", evidence="stat", pass_condition="true")]),
+                on_fail=StepOnFail(behavior=OnFailBehavior.ABORT_PLAN, refuse_if=[]),
+                audit=StepAudit(record_outputs=[]),
+            )],
+            abort_conditions=[AbortCondition(condition="error", reason="Test abort")],
         )
 
     @pytest.fixture
@@ -989,7 +849,6 @@ class TestMiddlewareCreateEnhancedPlan:
             "enabled": True,
             "enhancement": {
                 "enabled": True,
-                "default_context": {"environment": "test", "user_role": "tester"},
             },
         }
 
@@ -1017,11 +876,12 @@ class TestMiddlewareCreateEnhancedPlan:
             session_id="session-456",
             user_id="user-123",
             token="token-abc",
+            request_body={"tools": []},
         )
 
         assert result is not None
         assert isinstance(result, EnhancedExecutionPlan)
-        assert result.description == "Test enhanced plan"
+        assert result.description_for_user == "Test enhanced plan for integration testing"
 
     @requires_llm
     def test_create_enhanced_plan_initializes_state(
@@ -1038,6 +898,7 @@ class TestMiddlewareCreateEnhancedPlan:
             session_id="session-456",
             user_id="user-123",
             token="token-abc",
+            request_body={"tools": []},
         )
 
         assert result.state is not None
@@ -1046,25 +907,33 @@ class TestMiddlewareCreateEnhancedPlan:
         assert result.state.context.token == "token-abc"
 
     @requires_llm
-    def test_create_enhanced_plan_passes_enhancement_context(
-        self,
-        middleware_with_enhancement,
-        sample_base_plan,
-        mock_enhanced_plan,
+    def test_create_enhanced_plan_passes_correct_user_message(
+            self,
+            middleware_with_enhancement,
+            sample_base_plan,
+            mock_enhanced_plan,
     ):
-        """Test that create_enhanced_plan passes context from settings."""
+        """Middleware must extract and pass correct user_message to planner."""
         middleware_with_enhancement._planner.enhance = MagicMock(return_value=mock_enhanced_plan)
+
+        body = {
+            "messages": [
+                {"role": "user", "content": "Read /tmp/file.txt"}
+            ]
+        }
 
         middleware_with_enhancement.create_enhanced_plan(
             basic_plan=sample_base_plan,
             session_id="session-456",
             user_id="user-123",
             token="token-abc",
+            request_body=body,
         )
 
-        # Check that enhance was called with the context from settings
-        call_kwargs = middleware_with_enhancement._planner.enhance.call_args.kwargs
-        assert call_kwargs["context"] == {"environment": "test", "user_role": "tester"}
+
+        kwargs = middleware_with_enhancement._planner.enhance.call_args.kwargs
+
+        assert kwargs["user_message"] == "Read /tmp/file.txt"
 
     @requires_llm
     def test_create_enhanced_plan_lazy_loads_llm(
@@ -1084,10 +953,39 @@ class TestMiddlewareCreateEnhancedPlan:
             session_id="session-456",
             user_id="user-123",
             token="token-abc",
+            request_body={"tools": []},
         )
 
         # After call, LLM should be created
         assert middleware_with_enhancement._llm is not None
+
+    def test_create_enhanced_plan_extracts_user_message(
+            self,
+            middleware_with_enhancement,
+            sample_base_plan,
+            mock_enhanced_plan,
+    ):
+        """Middleware should extract user_message from request_body."""
+
+        # ensure enhancement path executes
+        middleware_with_enhancement._enhancement_enabled = True
+        middleware_with_enhancement._llm = MagicMock()
+
+        middleware_with_enhancement._planner.enhance = MagicMock(
+            return_value=mock_enhanced_plan
+        )
+
+        middleware_with_enhancement.create_enhanced_plan(
+            basic_plan=sample_base_plan,
+            session_id="session-1",
+            user_id="user-1",
+            token="token-1",
+            request_body={"messages": [{"role": "user", "content": "read file"}]},
+        )
+
+        call_kwargs = middleware_with_enhancement._planner.enhance.call_args.kwargs
+
+        assert "user_message" in call_kwargs
 
     def test_create_enhanced_plan_reuses_llm(
         self,
@@ -1104,6 +1002,7 @@ class TestMiddlewareCreateEnhancedPlan:
             session_id="session-1",
             user_id="user-1",
             token="token-1",
+            request_body={"tools": []},
         )
         first_llm = middleware_with_enhancement._llm
 
@@ -1113,6 +1012,7 @@ class TestMiddlewareCreateEnhancedPlan:
             session_id="session-2",
             user_id="user-2",
             token="token-2",
+            request_body={"tools": []},
         )
         second_llm = middleware_with_enhancement._llm
 
@@ -1163,6 +1063,7 @@ class TestMiddlewareCreateEnhancedPlan:
                 session_id="session-456",
                 user_id="user-123",
                 token="token-abc",
+                request_body={"tools": []},
             )
 
         assert result is None
@@ -1178,6 +1079,15 @@ class TestMiddlewareCreateEnhancedPlan:
         assert record.exc_info is not None  # Stack trace included
         assert "plan-123" in record.message
         assert "ValueError" in record.message
+
+    # ---------------------------------------------------------------------------
+    # Real LLM Integration Tests (Anthropic)
+    # ---------------------------------------------------------------------------
+    # These tests call the real Anthropic API via src.llm.client.LLMClient.
+    # They are skipped unless ANTHROPIC_API_KEY is set.
+    # ---------------------------------------------------------------------------
+
+
 class TestLLMClientInit:
     """Tests for LLMClient initialization."""
 
@@ -1399,3 +1309,4 @@ class TestLLMClientComplete:
 
         call_args = mock_anthropic.messages.create.call_args
         assert call_args.kwargs["max_tokens"] == 4096
+

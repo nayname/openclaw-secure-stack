@@ -180,8 +180,10 @@ class TestWebhookGovernance:
         from src.governance.middleware import EvaluationResult
 
         governance = MagicMock()
-        governance.evaluate.return_value = EvaluationResult(
-            decision=GovernanceDecision.BLOCK,
+        governance.evaluate = AsyncMock(
+            return_value=EvaluationResult(
+                decision=GovernanceDecision.BLOCK,
+            )
         )
         sanitizer = MagicMock()
         sanitizer.sanitize.return_value = MagicMock(clean="blocked", injection_detected=False)
@@ -199,9 +201,11 @@ class TestWebhookGovernance:
         from src.governance.middleware import EvaluationResult
 
         governance = MagicMock()
-        governance.evaluate.return_value = EvaluationResult(
-            decision=GovernanceDecision.REQUIRE_APPROVAL,
-            approval_id="approval-123",
+        governance.evaluate = AsyncMock(
+            return_value=EvaluationResult(
+                decision=GovernanceDecision.REQUIRE_APPROVAL,
+                approval_id="approval-123",
+            )
         )
         sanitizer = MagicMock()
         sanitizer.sanitize.return_value = MagicMock(
@@ -221,10 +225,12 @@ class TestWebhookGovernance:
         from src.governance.middleware import EvaluationResult
 
         governance = MagicMock()
-        governance.evaluate.return_value = EvaluationResult(
-            decision=GovernanceDecision.ALLOW,
-            plan_id="plan-1",
-            token="tok-1",
+        governance.evaluate = AsyncMock(
+            return_value=EvaluationResult(
+                decision=GovernanceDecision.ALLOW,
+                plan_id="plan-1",
+                token="tok-1",
+            )
         )
         sanitizer = MagicMock()
         sanitizer.sanitize.return_value = MagicMock(clean="hello", injection_detected=False)
@@ -245,8 +251,10 @@ class TestWebhookGovernance:
         from src.governance.middleware import EvaluationResult
 
         governance = MagicMock()
-        governance.evaluate.return_value = EvaluationResult(
-            decision=GovernanceDecision.ALLOW,
+        governance.evaluate = AsyncMock(
+            return_value=EvaluationResult(
+                decision=GovernanceDecision.ALLOW,
+            )
         )
         audit = MagicMock()
         sanitizer = MagicMock()
